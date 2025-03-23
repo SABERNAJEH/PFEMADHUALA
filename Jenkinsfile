@@ -10,6 +10,8 @@ pipeline {
     triggers {
         // Poll SCM to check for changes (e.g., merged pull requests)
         pollSCM('H/5 * * * *') // Poll every 5 minutes
+        // Déclencheur GitHub webhook
+        githubPush()
     }
 
     stages {
@@ -18,7 +20,7 @@ pipeline {
                 script {
                     // Fetch the latest changes from the repository
                     sh 'git fetch origin'
-
+                    echo "git origin fetched OOO"
                     // Check for merged pull requests
                     def mergedPRs = sh(script: 'git log --merges --pretty=format:"%h - %an, %ar : %s"', returnStdout: true).trim()
 
@@ -26,11 +28,11 @@ pipeline {
                         echo "Merged Pull Requests:\n${mergedPRs}"
 
                         // Send Slack notification
-                        slackSend(
-                            channel: '#dev-team',
-                            message: "🚀 New Pull Request Merged!\n${mergedPRs}",
-                            color: 'good'
-                        )
+                        //slackSend(
+                          //  channel: '#dev-team',
+                            //message: "🚀 New Pull Request Merged!\n${mergedPRs}",
+                            //color: 'good'
+                        //)
 
                         // Send email notification
                         emailext(
