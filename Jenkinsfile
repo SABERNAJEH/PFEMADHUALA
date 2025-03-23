@@ -3,7 +3,7 @@ pipeline {
 
     environment {
         // Destinataires des e-mails de notification
-        EMAIL_RECIPIENTS = 'saber.fraj@etudiant-isi.utm.tn, najah.wchem@etudiant-isi.utm.tn'
+        EMAIL_RECIPIENTS = 'saber.fraj@etudiant-isi.utm.tn'
     }
 
     triggers {
