@@ -2,46 +2,51 @@ pipeline {
     agent any
 
     environment {
-      
-        // Email recipients for notifications
+        // Destinataires des e-mails de notification
         EMAIL_RECIPIENTS = 'saber.fraj@etudiant-isi.utm.tn, najah.wchem@etudiant-isi.utm.tn'
     }
 
     triggers {
-        // Poll SCM to check for changes (e.g., merged pull requests)
-        pollSCM('H/5 * * * *') // Poll every 5 minutes
+        // Poll SCM pour vérifier les modifications (toutes les 5 minutes)
+        pollSCM('H/5 * * * *') // Vérifie toutes les 5 minutes
         // Déclencheur GitHub webhook
         githubPush()
     }
 
     stages {
-        stage('Check for Merged Pull Requests') {
+        stage('Vérifier les modifications récentes') {
             steps {
                 script {
-                    // Fetch the latest changes from the repository
-                    sh 'git fetch origin'
-                    echo "git origin fetched OOO"
-                    // Check for merged pull requests
-                    def mergedPRs = sh(script: 'git log --merges --pretty=format:"%h - %an, %ar : %s"', returnStdout: true).trim()
+                    try {
+                        // Récupérer les dernières modifications du repository
+                        sh 'git fetch origin'
+                        echo "Dernières modifications récupérées avec succès."
 
-                    if (mergedPRs) {
-                        echo "Merged Pull Requests:\n${mergedPRs}"
+                        // Récupérer les derniers commits (non merges)
+                        def recentCommits = sh(script: 'git log --pretty=format:"%h - %an, %ar : %s" -n 5', returnStdout: true).trim()
 
-                        // Send Slack notification
-                        //slackSend(
-                          //  channel: '#dev-team',
-                            //message: "🚀 New Pull Request Merged!\n${mergedPRs}",
-                            //color: 'good'
-                        //)
+                        if (recentCommits) {
+                            echo "Derniers commits détectés :\n${recentCommits}"
 
-                        // Send email notification
-                        emailext(
-                            subject: '🚀 New Pull Request Merged!',
-                            body: "The following pull requests have been merged:\n\n${mergedPRs}",
-                            to: "${EMAIL_RECIPIENTS}"
-                        )
-                    } else {
-                        echo "No new pull requests merged."
+                            // Envoyer un e-mail de notification
+                            emailext(
+                                subject: '🚀 Nouvelle modification détectée sur le repository',
+                                body: """<html>
+                                            <body>
+                                                <h2>Nouvelle modification détectée !</h2>
+                                                <p>Les derniers commits sur le repository sont :</p>
+                                                <pre>${recentCommits}</pre>
+                                            </body>
+                                        </html>""",
+                                to: "${EMAIL_RECIPIENTS}",
+                                mimeType: 'text/html'
+                            )
+                        } else {
+                            echo "Aucun nouveau commit détecté."
+                        }
+                    } catch (Exception e) {
+                        echo "Une erreur s'est produite : ${e.message}"
+                        currentBuild.result = 'FAILURE'
                     }
                 }
             }
@@ -50,10 +55,15 @@ pipeline {
 
     post {
         success {
-            echo "Pipeline succeeded. Notifications sent if any PRs were merged."
+            echo "Pipeline exécuté avec succès. Les notifications ont été envoyées si des modifications ont été détectées."
         }
         failure {
-            echo "Pipeline failed. Check the logs for details."
+            echo "Échec du pipeline. Consultez les logs pour plus de détails."
+            emailext(
+                subject: '🚨 Échec du pipeline !',
+                body: "Le pipeline a échoué. Veuillez consulter les logs pour plus de détails.",
+                to: "${EMAIL_RECIPIENTS}"
+            )
         }
     }
 }
