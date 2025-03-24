@@ -1,8 +1,10 @@
-name: Security Scan and Notification
+name: Kubescape Security Scan
 
 on:
   push:
-    branches: [ master ]
+    branches: [ master]
+  pull_request:
+    branches: [ master]
 
 jobs:
   security-scan:
@@ -13,34 +15,46 @@ jobs:
 
       - name: Install Kubescape
         run: |
-          # Installation de Kubescape
+          # Install Kubescape
           curl -s https://raw.githubusercontent.com/kubescape/kubescape/master/install.sh | /bin/bash
-          # echo "/home/runner/.kubescape/bin" >> $GITHUB_PATH
-          #  echo "Updated PATH: $PATH"
-          #echo "Kubescape path: $(which kubescape)"
+          
+          # Add to PATH for current step
+          echo "$HOME/.kubescape/bin" >> $GITHUB_PATH
+          
+          # Verify installation
+          echo "Updated PATH: $PATH"
+          which kubescape
           kubescape version
-      - name: SaberNajeh
-        run: |
-          export PATH=$PATH:/home/runner/.kubescape/bin " zednaha path"
 
       - name: Run Kubescape scan
         run: |
-          kubescape scan *.yaml --format json --output results.json || echo "Scan completed with exit code $?"
-          [ -f results.json ] && jq '.' results.json || echo "No results file generated"
+          # Explicitly use full path to ensure it works
+          $HOME/.kubescape/bin/kubescape scan *.yaml --format json --output results.json
+          
+          # Process results
+          if [ -f results.json ]; then
+            echo "Scan completed successfully"
+            jq '.' results.json
+          else
+            echo "Error: No results file generated"
+            exit 1
+          fi
 
       - name: Send email notification
         uses: dawidd6/action-send-mail@v3
+        if: always()
         with:
           server_address: smtp.gmail.com
           server_port: 465
           username: ${{ secrets.GMAIL_USERNAME }}
           password: ${{ secrets.GMAIL_PASSWORD }}
-          subject: "Security Scan Report - ${{ github.repository }}"
+          subject: "Kubescape Report - ${{ github.repository }}"
           body: |
-            Security scan completed for repository: ${{ github.repository }}
-            Commit: ${{ github.event.head_commit.message }}
-            Author: ${{ github.event.head_commit.author.name }}
-            Date: ${{ github.event.head_commit.timestamp }}
+            Kubescape security scan results:
+            - Repository: ${{ github.repository }}
+            - Triggered by: ${{ github.event_name }}
+            - Commit: ${{ github.sha }}
+            - Workflow: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
           to: najah.wchem@etudiant-isi.utm.tn, saber.fraj@etudiant-isi.utm.tn
           from: ${{ secrets.GMAIL_USERNAME }}
           secure: true
