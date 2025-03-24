@@ -1,0 +1,48 @@
+name: Kubescape Test and Notification
+
+# Déclencheurs
+on:
+  push:
+    branches:
+      - master  # Déclenche le workflow lors d'un push sur la branche "master"
+  pull_request:
+    branches:
+      - master  # Déclenche le workflow lors d'une pull request vers la branche "master"
+
+# Jobs
+jobs:
+  test-and-notify:
+    runs-on: ubuntu-latest  # Exécute le job sur un runner Ubuntu
+
+    steps:
+      # Étape 1 : Checkout du code
+      - name: Checkout code
+        uses: actions/checkout@v3  # Télécharge le code du repository
+
+      # Étape 2 : Installer Kubescape
+      - name: Install Kubescape
+        run: |
+          curl -s https://raw.githubusercontent.com/kubescape/kubescape/master/install.sh | /bin/bash
+
+      # Étape 3 : Exécuter Kubescape sur les manifests
+      - name: Run Kubescape
+        run: |
+          kubescape scan *.yaml --format json --output results.json
+        shell: bash
+
+      # Étape 4 : Envoyer le rapport par e-mail
+      - name: Send email with Kubescape report
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com  # Serveur SMTP de Gmail
+          server_port: 465  # Port SMTP pour SSL
+          username: ${{ secrets.GMAIL_USERNAME }}  # Votre adresse Gmail
+          password: ${{ secrets.GMAIL_PASSWORD }}  # Mot de passe d'application Gmail
+          subject: "Kubescape Report - Repository ${{ github.repository }}"
+          body: |
+            Le test Kubescape a été exécuté sur les manifests Kubernetes.
+            Veuillez trouver ci-joint le rapport au format JSON.
+          to: najah.wchem@etudiant-isi.utm.tn  # Destinataire de l'e-mail
+          from: ${{ secrets.GMAIL_USERNAME }}  # Expéditeur de l'e-mail
+          secure: true  # Utiliser SSL
+          attachments: results.json  # Joindre le rapport Kubescape
