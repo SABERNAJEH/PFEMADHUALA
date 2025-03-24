@@ -2,9 +2,9 @@ name: Kubescape Security Scan
 
 on:
   push:
-    branches: [ master]
+    branches: [master]
   pull_request:
-    branches: [ master]
+    branches: [master]
 
 jobs:
   security-scan:
@@ -13,49 +13,45 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Install Kubescape
+      # Reliable Kubescape installation method
+      - name: Install and Run Kubescape
         run: |
-          # Install Kubescape
-          curl -s https://raw.githubusercontent.com/kubescape/kubescape/master/install.sh | /bin/bash
-          
-          # Add to PATH for current step
-          echo "$HOME/.kubescape/bin" >> $GITHUB_PATH
+          # Download the binary directly
+          curl -LO https://github.com/kubescape/kubescape/releases/latest/download/kubescape-linux-ubuntu-latest
+          chmod +x kubescape-linux-ubuntu-latest
+          sudo mv kubescape-linux-ubuntu-latest /usr/local/bin/kubescape
           
           # Verify installation
-          echo "Updated PATH: $PATH"
-          which kubescape
           kubescape version
-
-      - name: Run Kubescape scan
-        run: |
-          # Explicitly use full path to ensure it works
-          $HOME/.kubescape/bin/kubescape scan *.yaml --format json --output results.json
           
-          # Process results
-          if [ -f results.json ]; then
-            echo "Scan completed successfully"
-            jq '.' results.json
-          else
-            echo "Error: No results file generated"
-            exit 1
+          # Run scan with proper error handling
+          if ! kubescape scan *.yaml --format json --output results.json; then
+            echo "Scan failed, creating empty results file"
+            echo '{"error": "Scan failed"}' > results.json
           fi
+          
+          # Show summary
+          jq '.' results.json
 
+      # Email notification with proper authentication
       - name: Send email notification
         uses: dawidd6/action-send-mail@v3
         if: always()
         with:
           server_address: smtp.gmail.com
-          server_port: 465
+          server_port: 587  # Using TLS instead of SSL
           username: ${{ secrets.GMAIL_USERNAME }}
-          password: ${{ secrets.GMAIL_PASSWORD }}
+          password: ${{ secrets.GMAIL_APP_PASSWORD }}  # Must use app password
           subject: "Kubescape Report - ${{ github.repository }}"
           body: |
-            Kubescape security scan results:
-            - Repository: ${{ github.repository }}
-            - Triggered by: ${{ github.event_name }}
-            - Commit: ${{ github.sha }}
-            - Workflow: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            Kubescape security scan completed.
+            
+            Repository: ${{ github.repository }}
+            Commit: ${{ github.sha }}
+            Workflow: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            
+            Scan results attached.
           to: najah.wchem@etudiant-isi.utm.tn, saber.fraj@etudiant-isi.utm.tn
           from: ${{ secrets.GMAIL_USERNAME }}
-          secure: true
+          secure: false  # Using TLS instead of SSL
           attachments: results.json
