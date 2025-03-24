@@ -15,9 +15,9 @@ jobs:
         run: |
           # Installation de Kubescape
           curl -s https://raw.githubusercontent.com/kubescape/kubescape/master/install.sh | /bin/bash
-          echo "/home/runner/.kubescape/bin" >> $GITHUB_PATH
-          echo "Updated PATH: $PATH"
-          echo "Kubescape path: $(which kubescape)"
+          # echo "/home/runner/.kubescape/bin" >> $GITHUB_PATH
+          #  echo "Updated PATH: $PATH"
+          #echo "Kubescape path: $(which kubescape)"
           kubescape version
       - name: SaberNajeh
         run: |
