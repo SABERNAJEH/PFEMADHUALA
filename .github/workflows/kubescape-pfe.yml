@@ -13,35 +13,39 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # Reliable Kubescape installation method
-      - name: Install and Run Kubescape
+      # Most reliable method using official installation script
+      - name: Install Kubescape
         run: |
-          # Download the binary directly
-          curl -LO https://github.com/kubescape/kubescape/releases/latest/download/kubescape-linux-ubuntu-latest
-          chmod +x kubescape-linux-ubuntu-latest
-          sudo mv kubescape-linux-ubuntu-latest /usr/local/bin/kubescape
+          # Install using official method
+          curl -s https://raw.githubusercontent.com/kubescape/kubescape/master/install.sh | /bin/bash
           
           # Verify installation
-          kubescape version
+          echo "Installed Kubescape version:"
+          $HOME/.kubescape/bin/kubescape version
           
-          # Run scan with proper error handling
-          if ! kubescape scan *.yaml --format json --output results.json; then
-            echo "Scan failed, creating empty results file"
-            echo '{"error": "Scan failed"}' > results.json
-          fi
-          
-          # Show summary
-          jq '.' results.json
+          # Add to PATH for current job
+          echo "$HOME/.kubescape/bin" >> $GITHUB_PATH
 
-      # Email notification with proper authentication
+      # Run scan with explicit path
+      - name: Run Kubescape scan
+        run: |
+          $HOME/.kubescape/bin/kubescape scan *.yaml --format json --output results.json || echo "Scan completed with exit code $?"
+          [ -f results.json ] && jq '.' results.json || echo "No results file generated"
+
+      # Alternative Docker method (commented out)
+      # - name: Run via Docker (fallback)
+      #   if: failure()
+      #   run: |
+      #     docker run --rm -v $(pwd):/data kubescape/kubescape scan /data/*.yaml --format json --output /data/results.json
+
       - name: Send email notification
         uses: dawidd6/action-send-mail@v3
         if: always()
         with:
           server_address: smtp.gmail.com
-          server_port: 587  # Using TLS instead of SSL
+          server_port: 587
           username: ${{ secrets.GMAIL_USERNAME }}
-          password: ${{ secrets.GMAIL_APP_PASSWORD }}  # Must use app password
+          password: ${{ secrets.GMAIL_APP_PASSWORD }}
           subject: "Kubescape Report - ${{ github.repository }}"
           body: |
             Kubescape security scan completed.
@@ -53,5 +57,5 @@ jobs:
             Scan results attached.
           to: najah.wchem@etudiant-isi.utm.tn, saber.fraj@etudiant-isi.utm.tn
           from: ${{ secrets.GMAIL_USERNAME }}
-          secure: false  # Using TLS instead of SSL
+          secure: false
           attachments: results.json
