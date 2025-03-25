@@ -57,6 +57,6 @@ jobs:
             Scan results attached.
           to: najah.wchem@etudiant-isi.utm.tn, saber.fraj@etudiant-isi.utm.tn
           from: ${{ secrets.GMAIL_USERNAME }}
-          secure: true
+          secure: false
           ignore_cert: true
           attachments: results.json
