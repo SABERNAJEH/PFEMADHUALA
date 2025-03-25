@@ -51,12 +51,12 @@ jobs:
             Kubescape security scan completed.
             
             Repository: ${{ github.repository }}
-            Commit: ${{ github.sha }}
+            #Commit: ${{ github.sha }}
             Workflow: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
             
             Scan results attached.
           to: najah.wchem@etudiant-isi.utm.tn, saber.fraj@etudiant-isi.utm.tn
           from: ${{ secrets.GMAIL_USERNAME }}
-          secure: true
+          secure: false
           ignore_cert: true
           attachments: results.json
