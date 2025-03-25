@@ -43,14 +43,14 @@ jobs:
         if: always()
         with:
           server_address: smtp.gmail.com
-          server_port: 465
+          server_port: 587
           username: ${{ secrets.GMAIL_USERNAME }}
           password: ${{ secrets.GMAIL_APP_PASSWORD }}
           subject: "Kubescape Report - ${{ github.repository }}"
           body: |
             Kubescape security scan completed.
             
-            Repository: ${{ github.repository }}
+            # Repository: ${{ github.repository }}
             #Commit: ${{ github.sha }}
             Workflow: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
             
