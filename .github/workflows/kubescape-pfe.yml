@@ -43,7 +43,7 @@ jobs:
         if: always()
         with:
           server_address: smtp.gmail.com
-          server_port: 465
+          server_port: 587
           username: ${{ secrets.GMAIL_USERNAME }}
           password: ${{ secrets.GMAIL_APP_PASSWORD }}
           subject: "Kubescape Report - ${{ github.repository }}"
@@ -57,5 +57,6 @@ jobs:
             Scan results attached.
           to: najah.wchem@etudiant-isi.utm.tn, saber.fraj@etudiant-isi.utm.tn
           from: ${{ secrets.GMAIL_USERNAME }}
-          secure: true
+          secure: false
+          require_tls: true
           attachments: results.json
