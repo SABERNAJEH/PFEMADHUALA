@@ -1,11 +1,9 @@
 name: Kubescape Security Scan
-
 on:
   push:
     branches: [master]
   pull_request:
     branches: [master]
-
 jobs:
   security-scan:
     runs-on: ubuntu-latest
@@ -31,11 +29,9 @@ jobs:
         run: |
           $HOME/.kubescape/bin/kubescape scan *.yaml --format json --output results.json || echo "Scan completed with exit code $?"
           [ -f results.json ] && jq '.' results.json || echo "No results file generated"
-
-     
+   
       - name: Send email notification
-        uses: dawidd6/action-send-mail@v3
-      #  if: always()
+        uses: dawidd6/action-send-mail@v3      
         with:
           server_address: smtp.gmail.com
           server_port: 465
@@ -46,15 +42,12 @@ jobs:
           subject: "Kubescape Report - ${{ github.repository }}"
           body: |
             Kubescape security scan completed.
-            
             # Repository: ${{ github.repository }}
             #Commit: ${{ github.sha }}
             Workflow: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
             
             Scan results attached.
           from: ${{ secrets.GMAIL_USERNAME }}
-          to: najah.wchem@etudiant-isi.utm.tn, saber.fraj@etudiant-isi.utm.tn
-          
-          
+          to: najah.wchem@etudiant-isi.utm.tn, saber.fraj@etudiant-isi.utm.tn       
          # ignore_cert: true
           attachments: results.json
