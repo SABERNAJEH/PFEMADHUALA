@@ -35,12 +35,14 @@ jobs:
      
       - name: Send email notification
         uses: dawidd6/action-send-mail@v3
-        if: always()
+      #  if: always()
         with:
           server_address: smtp.gmail.com
-          server_port: 465
+          server_port: 587
           username: ${{ secrets.GMAIL_USERNAME }}
           password: ${{ secrets.GMAIL_APP_PASSWORD }}
+          secure: false
+          ignore_cert: true
           subject: "Kubescape Report - ${{ github.repository }}"
           body: |
             Kubescape security scan completed.
@@ -50,8 +52,9 @@ jobs:
             Workflow: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
             
             Scan results attached.
-          to: najah.wchem@etudiant-isi.utm.tn, saber.fraj@etudiant-isi.utm.tn
           from: ${{ secrets.GMAIL_USERNAME }}
-          secure: true
+          to: najah.wchem@etudiant-isi.utm.tn, saber.fraj@etudiant-isi.utm.tn
+          
+          
          # ignore_cert: true
           attachments: results.json
