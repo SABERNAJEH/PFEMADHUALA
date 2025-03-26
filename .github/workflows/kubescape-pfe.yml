@@ -26,12 +26,7 @@ jobs:
           # Add to PATH for current job
           echo "$HOME/.kubescape/bin" >> $GITHUB_PATH
 
-      - name: Configure OpenSSL for modern TLS
-        run: |
-            echo "openssl_conf = default_conf" >> $GITHUB_ENV
-            echo -e "[default_conf]\nssl_conf = ssl_sect\n[ssl_sect]\nsystem_default = system_default_sect\n[system_default_sect]\nMinProtocol = TLSv1.2\nCipherString = DEFAULT:@SECLEVEL=1" >> $GITHUB_ENV
-        shell: bash
-      # Run scan with explicit path
+       # Run scan with explicit path
       - name: Run Kubescape scan
         run: |
           $HOME/.kubescape/bin/kubescape scan *.yaml --format json --output results.json || echo "Scan completed with exit code $?"
