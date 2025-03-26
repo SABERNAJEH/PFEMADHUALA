@@ -26,18 +26,18 @@ jobs:
           # Add to PATH for current job
           echo "$HOME/.kubescape/bin" >> $GITHUB_PATH
 
+      - name: Configure OpenSSL for modern TLS
+        run: |
+            echo "openssl_conf = default_conf" >> $GITHUB_ENV
+            echo -e "[default_conf]\nssl_conf = ssl_sect\n[ssl_sect]\nsystem_default = system_default_sect\n[system_default_sect]\nMinProtocol = TLSv1.2\nCipherString = DEFAULT:@SECLEVEL=1" >> $GITHUB_ENV
+        shell: bash
       # Run scan with explicit path
       - name: Run Kubescape scan
         run: |
           $HOME/.kubescape/bin/kubescape scan *.yaml --format json --output results.json || echo "Scan completed with exit code $?"
           [ -f results.json ] && jq '.' results.json || echo "No results file generated"
 
-      # Alternative Docker method (commented out)
-      # - name: Run via Docker (fallback)
-      #   if: failure()
-      #   run: |
-      #     docker run --rm -v $(pwd):/data kubescape/kubescape scan /data/*.yaml --format json --output /data/results.json
-
+     
       - name: Send email notification
         uses: dawidd6/action-send-mail@v3
         if: always()
@@ -46,7 +46,6 @@ jobs:
           server_port: 587
           username: ${{ secrets.GMAIL_USERNAME }}
           password: ${{ secrets.GMAIL_APP_PASSWORD }}
-          secure: true
           subject: "Kubescape Report - ${{ github.repository }}"
           body: |
             Kubescape security scan completed.
@@ -58,5 +57,6 @@ jobs:
             Scan results attached.
           to: najah.wchem@etudiant-isi.utm.tn, saber.fraj@etudiant-isi.utm.tn
           from: ${{ secrets.GMAIL_USERNAME }}
-         
+          secure: false
+          ignore_cert: true
           attachments: results.json
