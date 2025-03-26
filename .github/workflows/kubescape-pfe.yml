@@ -40,7 +40,7 @@ jobs:
           server_address: smtp.gmail.com
           server_port: 587
           username: ${{ secrets.GMAIL_USERNAME }}
-          password: ${{ secrets.GMAIL_APP_PASSWORD }}
+          password: ${{ secrets.GMAIL_PASSWORD }}
           secure: false
           ignore_cert: true
           subject: "Kubescape Report - ${{ github.repository }}"
