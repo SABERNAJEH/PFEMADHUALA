@@ -1,5 +1,4 @@
 name: Kubescape Security Scan
-
 on:
   push:
     branches: [master]
@@ -34,10 +33,10 @@ jobs:
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.gmail.com
-          server_port: 587  # Recommandé pour Gmail
+          server_port: 465  # Recommandé pour Gmail
           username: ${{ secrets.GMAIL_USERNAME }}
-          password: ${{ secrets.GMAIL_APP_PASSWORD }}  # Utilisez un mot de passe d'application
-          secure: false     # Doit être false pour le port 587
+          password: ${{ secrets.GMAIL_PASSWORD }}  # Utilisez un mot de passe d'application
+          secure: true     # Doit être false pour le port 587
           ignore_cert: true
           subject: "Kubescape Report - ${{ github.repository }}"
           body: |
