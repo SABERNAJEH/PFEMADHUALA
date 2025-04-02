@@ -14,6 +14,7 @@ jobs:
       # Most reliable method using official installation script
       - name: Install Kubescape
         run: |
+        
           # Install using official method
           curl -s https://raw.githubusercontent.com/kubescape/kubescape/master/install.sh | /bin/bash
           
@@ -25,10 +26,14 @@ jobs:
           echo "$HOME/.kubescape/bin" >> $GITHUB_PATH
 
        # Run scan with explicit pathi
-      - name: Run Kubescape scan
+     ## - name: Run Kubescape scan
+     ##   run: |
+      ##    $HOME/.kubescape/bin/kubescape scan *.yaml --format json --output results.json || echo "Scan completed with exit code $?"
+        ##  [ -f results.json ] && jq '.' results.json || echo "No results file generated"
+      - name: Run Kubescape and Push to Prometheus
         run: |
-          $HOME/.kubescape/bin/kubescape scan *.yaml --format json --output results.json || echo "Scan completed with exit code $?"
-          [ -f results.json ] && jq '.' results.json || echo "No results file generated"
+          kubescape scan --format=prometheus --output results.prometheus
+          curl -X POST --data-binary @results.prometheus http://74.234.145.238:9091/metrics/job/kubescape
    
       - name: Send email notification
         uses: dawidd6/action-send-mail@v3      
@@ -50,4 +55,4 @@ jobs:
           from: ${{ secrets.GMAIL_USERNAME }}
           to: najah.wchem@etudiant-isi.utm.tn, saber.fraj@etudiant-isi.utm.tn       
          # ignore_cert: true
-          attachments: results.json
+       #   attachments: results.json
