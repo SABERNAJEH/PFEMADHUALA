@@ -26,9 +26,11 @@ jobs:
 
       - name: Configure Kubernetes Access
         run: |
-          mkdir -p ~/.kube
-          echo "${{ secrets.KUBE_CONFIG }}" > ~/.kube/config
+         mkdir -p ~/.kube
+          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > ~/.kube/config
           chmod 600 ~/.kube/config
+          # Verify connection
+          kubectl cluster-info
 
       - name: Run Kubescape Scan
         run: |
