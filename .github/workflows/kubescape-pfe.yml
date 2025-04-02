@@ -24,7 +24,7 @@ jobs:
           # Add to PATH for current job
           echo "$HOME/.kubescape/bin" >> $GITHUB_PATH
 
-       # Run scan with explicit path
+       # Run scan with explicit pathi
       - name: Run Kubescape scan
         run: |
           $HOME/.kubescape/bin/kubescape scan *.yaml --format json --output results.json || echo "Scan completed with exit code $?"
