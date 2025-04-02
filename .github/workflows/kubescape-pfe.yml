@@ -4,6 +4,7 @@ on:
     branches: [master]
   pull_request:
     branches: [master]
+
 jobs:
   security-scan:
     runs-on: ubuntu-latest
@@ -11,12 +12,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # Most reliable method using official installation script
       - name: Install Kubescape
         run: |
-        
-          # Install using official method
-          curl -s https://raw.githubusercontent.com/kubescape/kubescape/master/install.sh | /bin/bash
+         # Install using official method
+         curl -s https://raw.githubusercontent.com/kubescape/kubescape/master/install.sh | /bin/bash
           
           # Verify installation
           echo "Installed Kubescape version:"
@@ -25,17 +24,29 @@ jobs:
           # Add to PATH for current job
           echo "$HOME/.kubescape/bin" >> $GITHUB_PATH
 
-       # Run scan with explicit pathi edited
-     ## - name: Run Kubescape scan
-     ##   run: |
-      ##    $HOME/.kubescape/bin/kubescape scan *.yaml --format json --output results.json || echo "Scan completed with exit code $?"
-        ##  [ -f results.json ] && jq '.' results.json || echo "No results file generated"
-      - name: Run Kubescape and Push to Prometheus
+      - name: Configure Kubernetes Access
         run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBE_CONFIG }}" > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Run Kubescape Scan
+        run: |
+          # Scan with Prometheus output
           kubescape scan --format=prometheus --output results.prometheus
+          
+          # Push to Prometheus Pushgateway
           curl -X POST --data-binary @results.prometheus http://74.234.145.238:9091/metrics/job/kubescape
-   
+          
+          # Also generate JSON for email
+          kubescape scan --format json --output results.json
+          
+          # Extract risk score for conditional logic
+          RISK_SCORE=$(jq -r '.summaryDetails.score' results.json)
+          echo "risk_score=$RISK_SCORE" >> $GITHUB_OUTPUT
+
       - name: Send email notification
+        if: always()
         uses: dawidd6/action-send-mail@v3      
         with:
           server_address: smtp.gmail.com
@@ -43,16 +54,19 @@ jobs:
           username: ${{ secrets.GMAIL_USERNAME }}
           password: ${{ secrets.GMAIL_PASSWORD }}
           secure: true
-          ignore_cert: true
           subject: "Kubescape Report - ${{ github.repository }}"
           body: |
             Kubescape security scan completed.
-            # Repository: ${{ github.repository }}
-            #Commit: ${{ github.sha }}
+            Repository: ${{ github.repository }}
+            Commit: ${{ github.sha }}
+            Risk Score: ${{ steps.kubescape.outputs.risk_score }}
             Workflow: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
             
-            Scan results attached.
+            Full results attached.
           from: ${{ secrets.GMAIL_USERNAME }}
-          to: najah.wchem@etudiant-isi.utm.tn, saber.fraj@etudiant-isi.utm.tn       
-         # ignore_cert: true
-       #   attachments: results.json
+          to: najah.wchem@etudiant-isi.utm.tn, saber.fraj@etudiant-isi.utm.tn
+          attachments: results.json
+
+      - name: Fail if high risk
+        if: steps.kubescape.outputs.risk_score > 50
+        run: exit 1
