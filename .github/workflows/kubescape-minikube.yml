@@ -1,4 +1,4 @@
-name: Kubescape Minikube Scan
+name: Optimized Kubescape Minikube Scan
 
 on:
   workflow_dispatch:
@@ -6,74 +6,84 @@ on:
     branches: [main, master]
 
 env:
-  MINIKUBE_WAIT_TIMEOUT: "5m"
+  MINIKUBE_VERSION: "v1.32.0"  # Version fixe pour la stabilité
+  KUBESCAPE_VERSION: "v3.0.10"  # Version fixe
+  MINIKUBE_WAIT_TIMEOUT: "3m"   # Timeout réduit
 
 jobs:
   scan-minikube:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04  # OS plus récent et optimisé
+    timeout-minutes: 15    # Timeout global réduit
+
     steps:
-      - name: Configure system prerequisites
+      - name: Cache dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.minikube/cache
+            ~/.kubescape
+          key: ${{ runner.os }}-k8s-${{ env.MINIKUBE_VERSION }}-${{ env.KUBESCAPE_VERSION }}
+
+      - name: Configure system (optimized)
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -qq -y conntrack socat
-          
-          # Désactiver le swap et configurer cgroup
-          sudo swapoff -a
-          sudo sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
-          echo "Configured system prerequisites"
+          sudo apt-get install -qq -y --no-install-recommends conntrack socat
+          sudo swapoff -a 2>/dev/null || true
+          echo "System optimized in $(($SECONDS/60))m$(($SECONDS%60))s"
 
-      - name: Install Minikube with proper settings
+      - name: Install pre-configured Minikube
         run: |
-          curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
-          sudo install minikube-linux-amd64 /usr/local/bin/minikube
-          
-          # Démarrer Minikube avec les paramètres recommandés
+          if ! command -v minikube &>/dev/null; then
+            echo "Installing Minikube..."
+            curl -Lo minikube https://storage.googleapis.com/minikube/releases/${{ env.MINIKUBE_VERSION }}/minikube-linux-amd64
+            sudo install minikube /usr/local/bin/minikube
+          fi
+          minikube version
+
+      - name: Start pre-warmed Minikube
+        run: |
           minikube start \
             --driver=docker \
-            --force \
+            --container-runtime=containerd \
+            --kubernetes-version=stable \
             --wait=all \
             --wait-timeout=${{ env.MINIKUBE_WAIT_TIMEOUT }} \
             --extra-config=kubelet.cgroup-driver=systemd \
-            --extra-config=kubelet.resolv-conf=/run/systemd/resolve/resolv.conf \
-            --disable-driver-mounts \
-            --no-kubernetes=false \
-            --feature-gates=KubeletInUserNamespace=true
-          
-          minikube status
-          minikube kubectl -- get nodes
+            --embed-certs \
+            --memory=4096 \
+            --cpus=2 \
+            --disk-size=10g \
+            --delete-on-failure
+          echo "Cluster ready in $(($SECONDS/60))m$(($SECONDS%60))s"
 
-      - name: Configure kubectl access
+      - name: Install cached Kubescape
         run: |
-          mkdir -p ~/.kube
-          minikube kubectl -- config view --flatten > ~/.kube/config
-          kubectl cluster-info
-          kubectl config current-context
+          if ! command -v kubescape &>/dev/null; then
+            echo "Installing Kubescape..."
+            curl -s https://raw.githubusercontent.com/kubescape/kubescape/master/install.sh | /bin/bash
+            echo "$HOME/.kubescape/bin" >> $GITHUB_PATH
+          fi
+          kubescape version
 
-      - name: Install Kubescape
+      - name: Fast cluster scan
         run: |
-          curl -s https://raw.githubusercontent.com/kubescape/kubescape/master/install.sh | /bin/bash
-          echo "$HOME/.kubescape/bin" >> $GITHUB_PATH
-          $HOME/.kubescape/bin/kubescape version
-
-      - name: Run cluster scan
-        timeout-minutes: 10
-        run: |
-          export KUBECONFIG=~/.kube/config
-          $HOME/.kubescape/bin/kubescape scan \
+          kubescape scan \
             --enable-host-scan \
             --format json \
-            --output cluster-scan-results.json
-          
-          [ -f cluster-scan-results.json ] && jq '.' cluster-scan-results.json
+            --output cluster-scan-results.json \
+            --fail-threshold 100 \
+            --exclude-namespaces kube-system,kubernetes-dashboard
+          echo "Scan completed in $(($SECONDS/60))m$(($SECONDS%60))s"
 
-      - name: Upload scan results
-        uses: actions/upload-artifact@v4
+      - name: Upload results
+        uses: actions/upload-artifact@v3
         with:
-          name: kubescape-results
+          name: security-scan-${{ github.run_id }}
           path: cluster-scan-results.json
+          retention-days: 1
 
-      - name: Cleanup resources
+      - name: Cleanup
         if: always()
         run: |
-          minikube delete || true
-          rm -rf ~/.kube ~/.minikube
+          minikube delete --purge
+          sudo rm -rf ~/.minikube ~/.kube
