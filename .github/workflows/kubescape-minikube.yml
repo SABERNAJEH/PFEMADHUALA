@@ -6,7 +6,7 @@ on:
     branches: [main, master]
 
 env:
-  MINIKUBE_WAIT_TIMEOUT: "5m"  # Augmentation du timeout
+  MINIKUBE_WAIT_TIMEOUT: "300"  # 5 minutes en secondes
 
 jobs:
   scan-minikube:
@@ -17,17 +17,17 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -qq -y conntrack socat
 
-      - name: Start Minikube
+      - name: Start Minikube (corrected)
         run: |
           curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
           sudo install minikube-linux-amd64 /usr/local/bin/minikube
           
-          # Démarrer Minikube avec des paramètres explicites
+          # Version corrigée sans --timeout flag
           minikube start \
             --driver=docker \
             --force \
             --wait=all \
-            --timeout=${{ env.MINIKUBE_WAIT_TIMEOUT }} \
+            --wait-timeout=${{ env.MINIKUBE_WAIT_TIMEOUT }} \
             --extra-config=kubelet.resolv-conf=/run/systemd/resolve/resolv.conf
           
           minikube status
@@ -37,13 +37,8 @@ jobs:
         run: |
           mkdir -p ~/.kube
           minikube kubectl -- config view --flatten > ~/.kube/config
-          
-          # Vérification de la connexion avec timeout
-          timeout 60 kubectl cluster-info || \
-            (echo "::error::Failed to connect to cluster"; exit 1)
-          
+          kubectl cluster-info
           kubectl config current-context
-          kubectl get ns
 
       - name: Install Kubescape
         run: |
@@ -52,32 +47,24 @@ jobs:
           $HOME/.kubescape/bin/kubescape version
 
       - name: Scan Minikube Cluster
-        timeout-minutes: 10  # Timeout généreux pour le scan
+        timeout-minutes: 10
         run: |
           export KUBECONFIG=~/.kube/config
           $HOME/.kubescape/bin/kubescape scan \
-            --submit \
             --enable-host-scan \
             --format json \
-            --output cluster-scan-results.json \
-            --verbose
+            --output cluster-scan-results.json
           
-          # Vérification des résultats
-          [ -f cluster-scan-results.json ] && \
-            jq '.summaryDetails' cluster-scan-results.json || \
-            echo "::warning::No scan results file generated"
+          [ -f cluster-scan-results.json ] && jq '.' cluster-scan-results.json
 
       - name: Upload Results
-        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: kubescape-results
-          path: |
-            cluster-scan-results.json
-            ~/.kube/config
+          path: cluster-scan-results.json
 
       - name: Cleanup
         if: always()
         run: |
-          minikube delete
+          minikube delete || true
           rm -rf ~/.kube ~/.minikube
