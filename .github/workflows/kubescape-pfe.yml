@@ -24,7 +24,6 @@ jobs:
           echo "$HOME/.kubescape/bin" >> $GITHUB_PATH
           kubescape version
 
-      # Scan des fichiers YAML
       - name: Scan Kubernetes manifests
         id: yaml-scan
         run: |
@@ -37,18 +36,16 @@ jobs:
             jq '.' ${{ env.YAML_SCAN_OUTPUT }} > temp.json && \
             mv temp.json ${{ env.YAML_SCAN_OUTPUT }}
 
-      # Configuration de l'accès au cluster
       - name: Configure Kubernetes access
-        if: ${{ github.event_name != 'pull_request' }}  # Modification ici
+        if: ${{ github.event_name != 'pull_request' }}
         run: |
           mkdir -p ~/.kube
           echo "${{ secrets.KUBECONFIG }}" > ~/.kube/config
           chmod 600 ~/.kube/config
           kubectl cluster-info
 
-      # Scan du cluster en fonctionnement
       - name: Scan running Kubernetes cluster
-        if: ${{ github.event_name != 'pull_request' }}  # Modification ici
+        if: ${{ github.event_name != 'pull_request' }}
         id: cluster-scan
         run: |
           kubescape scan \
@@ -63,7 +60,7 @@ jobs:
             mv temp.json ${{ env.CLUSTER_SCAN_OUTPUT }}
 
       - name: Upload scan results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4  # Changement à la version v4
         with:
           name: security-scan-results
           path: |
