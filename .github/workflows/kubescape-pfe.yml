@@ -39,7 +39,7 @@ jobs:
 
       # Configuration de l'accès au cluster
       - name: Configure Kubernetes access
-        if: secrets.KUBECONFIG
+        if: ${{ secrets.KUBECONFIG }}
         run: |
           mkdir -p ~/.kube
           echo "${{ secrets.KUBECONFIG }}" > ~/.kube/config
@@ -48,7 +48,7 @@ jobs:
 
       # Scan du cluster en fonctionnement
       - name: Scan running Kubernetes cluster
-        if: secrets.KUBECONFIG
+        if: ${{ secrets.KUBECONFIG }}
         id: cluster-scan
         run: |
           kubescape scan \
@@ -84,7 +84,7 @@ jobs:
             Security scan results:
             
             - YAML manifests scan: ${{ steps.yaml-scan.outcome }}
-            - Cluster scan: ${{ steps.cluster-scan.outcome if secrets.KUBECONFIG else 'Not performed' }}
+            - Cluster scan: ${{ steps.cluster-scan.outcome if secrets.KUBECONFIG != '' else 'Not performed' }}
             
             Repository: ${{ github.repository }}
             Commit: ${{ github.sha }}
