@@ -6,14 +6,14 @@ on:
     branches: [main, master]
 
 env:
-  MINIKUBE_VERSION: "v1.32.0"  # Version fixe pour la stabilité
-  KUBESCAPE_VERSION: "v3.0.10"  # Version fixe
-  MINIKUBE_WAIT_TIMEOUT: "3m"   # Timeout réduit
+  MINIKUBE_VERSION: "v1.32.0"
+  KUBESCAPE_VERSION: "v3.0.10"
+  MINIKUBE_WAIT_TIMEOUT: "3m"
 
 jobs:
   scan-minikube:
-    runs-on: ubuntu-22.04  # OS plus récent et optimisé
-    timeout-minutes: 15    # Timeout global réduit
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
 
     steps:
       - name: Cache dependencies
@@ -27,21 +27,17 @@ jobs:
       - name: Configure system (optimized)
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -qq -y --no-install-recommends conntrack socat
+          sudo apt-get install -qq -y --no-install-recommends conntrack socat curl
           sudo swapoff -a 2>/dev/null || true
-          echo "System optimized in $(($SECONDS/60))m$(($SECONDS%60))s"
 
-      - name: Install pre-configured Minikube
+      - name: Install Minikube
         run: |
-          if ! command -v minikube &>/dev/null; then
-            echo "Installing Minikube..."
-            curl -Lo minikube https://storage.googleapis.com/minikube/releases/${{ env.MINIKUBE_VERSION }}/minikube-linux-amd64
-            chmod +x minikube
-            sudo install minikube /usr/local/bin/minikube
-          fi
+          curl -Lo minikube https://storage.googleapis.com/minikube/releases/${{ env.MINIKUBE_VERSION }}/minikube-linux-amd64
+          chmod +x minikube
+          sudo install minikube /usr/local/bin/minikube
           minikube version
 
-      - name: Start pre-warmed Minikube
+      - name: Start Minikube cluster
         run: |
           minikube start \
             --driver=docker \
@@ -49,35 +45,32 @@ jobs:
             --kubernetes-version=stable \
             --wait=all \
             --wait-timeout=${{ env.MINIKUBE_WAIT_TIMEOUT }} \
-            --extra-config=kubelet.cgroup-driver=systemd \
-            --embed-certs \
             --memory=4096 \
-            --cpus=2 \
-            --disk-size=10g \
-            --delete-on-failure
-          echo "Cluster ready in $(($SECONDS/60))m$(($SECONDS%60))s"
+            --cpus=2
 
-      - name: Install cached Kubescape
+      - name: Install Kubescape
         run: |
-          if ! command -v kubescape &>/dev/null; then
-            echo "Installing Kubescape..."
-            curl -s https://raw.githubusercontent.com/kubescape/kubescape/master/install.sh | /bin/bash
-            echo "$HOME/.kubescape/bin" >> $GITHUB_PATH
-          fi
-          kubescape version
+          curl -s https://raw.githubusercontent.com/kubescape/kubescape/master/install.sh | /bin/bash
+          echo "$HOME/.kubescape/bin" >> $GITHUB_PATH
+          # Vérification de l'installation
+          $HOME/.kubescape/bin/kubescape version
 
-      - name: Fast cluster scan
+      - name: Wait for PATH update
         run: |
-          kubescape scan \
+          echo "Updated PATH: $PATH"
+          which kubescape || echo "kubescape not found in PATH"
+
+      - name: Run Kubescape scan
+        run: |
+          # Utilisation du chemin complet pour éviter les problèmes de PATH
+          $HOME/.kubescape/bin/kubescape scan \
             --enable-host-scan \
             --format json \
             --output cluster-scan-results.json \
-            --fail-threshold 100 \
             --exclude-namespaces kube-system,kubernetes-dashboard
-          echo "Scan completed in $(($SECONDS/60))m$(($SECONDS%60))s"
 
       - name: Upload results
-        uses: actions/upload-artifact@v4  # Version mise à jour
+        uses: actions/upload-artifact@v4
         with:
           name: security-scan-${{ github.run_id }}
           path: cluster-scan-results.json
