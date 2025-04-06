@@ -4,13 +4,7 @@ on:
     branches: [master]
   pull_request:
     branches: [master]
-# ajoutttttt
-env:
-  # Configuration des outputs
-  YAML_OUTPUT_FILE: "yamls-scan-results.json"
-  CLUSTER_OUTPUT_FILE: "cluster-scan-results.json"
-  NOTIFICATION_EMAILS: "najah.wchem@etudiant-isi.utm.tn, saber.fraj@etudiant-isi.utm.tn"
-# ajoutttttt
+
 jobs:
   security-scan:
     runs-on: ubuntu-latest
@@ -26,69 +20,15 @@ jobs:
           # Verify installation
           echo "Installed Kubescape version:"
           $HOME/.kubescape/bin/kubescape version
-          # Add to PATH for current job
+
+          # Add to PATH for current job1111
           echo "$HOME/.kubescape/bin" >> $GITHUB_PATH
 
-    #  - name: Run Kubescape scan
-     #   run: |
-      #    $HOME/.kubescape/bin/kubescape scan *.yaml --format json --output results.json || echo "Scan completed with exit code $?"
-       #   [ -f results.json ] && jq '.' results.json || echo "No results file generated"
-#ajoutttttttt
-# Scan des fichiers YAML
-      - name: Scan YAML files
-        id: yaml-scan
+      - name: Run Kubescape scan
         run: |
-          echo "Scanning Kubernetes YAML files..."
-          kubescape scan *.yaml \
-            --format json \
-            --output ${{ env.YAML_OUTPUT_FILE }} || echo "YAML scan exited with code $?"
-          
-          # Formatage des résultats
-          if [ -f "${{ env.YAML_OUTPUT_FILE }}" ]; then
-            jq '.' ${{ env.YAML_OUTPUT_FILE }} > formatted-yaml-results.json
-            mv formatted-yaml-results.json ${{ env.YAML_OUTPUT_FILE }}
-            echo "YAML scan results saved to ${{ env.YAML_OUTPUT_FILE }}"
-          else
-            echo "Warning: No YAML scan results generated"
-          fi
+          $HOME/.kubescape/bin/kubescape scan *.yaml --format json --output results.json || echo "Scan completed with exit code $?"
+          [ -f results.json ] && jq '.' results.json || echo "No results file generated"
 
-      # Scan du cluster Kubernetes (seulement si KUBECONFIG est configuré)
-      - name: Setup Kubernetes Cluster Access
-        if: env.KUBECONFIG != ''
-        run: |
-          mkdir -p ~/.kube
-          echo "${{ secrets.KUBECONFIG }}" > ~/.kube/config
-          chmod 600 ~/.kube/config
-          echo "Cluster info:"
-          kubectl cluster-info
-
-      - name: Scan Kubernetes Cluster
-        if: env.KUBECONFIG != ''
-        id: cluster-scan
-        run: |
-          echo "Scanning Kubernetes cluster..."
-          kubescape scan --submit \
-            --enable-host-scan \
-            --format json \
-            --output ${{ env.CLUSTER_OUTPUT_FILE }} || echo "Cluster scan exited with code $?"
-          
-          if [ -f "${{ env.CLUSTER_OUTPUT_FILE }}" ]; then
-            jq '.' ${{ env.CLUSTER_OUTPUT_FILE }} > formatted-cluster-results.json
-            mv formatted-cluster-results.json ${{ env.CLUSTER_OUTPUT_FILE }}
-            echo "Cluster scan results saved to ${{ env.CLUSTER_OUTPUT_FILE }}"
-          else
-            echo "Warning: No cluster scan results generated"
-          fi
-
-      # Upload des résultats
-      - name: Upload Scan Results
-        uses: actions/upload-artifact@v3
-        with:
-          name: security-scan-results
-          path: |
-            ${{ env.YAML_OUTPUT_FILE }}
-            ${{ env.CLUSTER_OUTPUT_FILE }}
-# ajouttttttttttt
       - name: Send email notification
         uses: dawidd6/action-send-mail@v3
         with:
@@ -101,19 +41,12 @@ jobs:
           subject: "Kubescape Report - ${{ github.repository }}"
           body: |
             Kubescape security scan completed.
-            #ajouttttttttttttttt
-            - YAML Files Scan: ${{ steps.yaml-scan.outcome }}
-            - Cluster Scan: ${{ steps.cluster-scan.outcome if env.KUBECONFIG != '' else 'NOT PERFORMED' }}
-             #ajouttttttttttttttt
+            
             Repository: ${{ github.repository }}
             Commit: ${{ github.sha }}
             Workflow: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
             
             Scan results attached.
           from: ${{ secrets.GMAIL_USERNAME }}
-          to: ${{ env.NOTIFICATION_EMAILS }}
-          attachments: |
-            ${{ env.YAML_OUTPUT_FILE }}
-            ${{ env.CLUSTER_OUTPUT_FILE }}
-          #to: najah.wchem@etudiant-isi.utm.tn, saber.fraj@etudiant-isi.utm.tn
-          #attachments: results.json
+          to: najah.wchem@etudiant-isi.utm.tn, saber.fraj@etudiant-isi.utm.tn
+          attachments: results.json"
