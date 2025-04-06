@@ -49,4 +49,4 @@ jobs:
             Scan results attached.
           from: ${{ secrets.GMAIL_USERNAME }}
           to: najah.wchem@etudiant-isi.utm.tn, saber.fraj@etudiant-isi.utm.tn
-          attachments: results.json"
+          attachments: results.json
