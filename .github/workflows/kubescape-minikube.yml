@@ -6,7 +6,7 @@ on:
     branches: [main, master]
 
 env:
-  MINIKUBE_WAIT_TIMEOUT: "300"  # 5 minutes en secondes
+  MINIKUBE_WAIT_TIMEOUT: "5m"  # Format correct avec unité de temps
 
 jobs:
   scan-minikube:
@@ -17,12 +17,14 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -qq -y conntrack socat
 
-      - name: Start Minikube (corrected)
+      - name: Download and install Minikube
         run: |
           curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
           sudo install minikube-linux-amd64 /usr/local/bin/minikube
-          
-          # Version corrigée sans --timeout flag
+          minikube version
+
+      - name: Start Minikube cluster
+        run: |
           minikube start \
             --driver=docker \
             --force \
@@ -46,7 +48,7 @@ jobs:
           echo "$HOME/.kubescape/bin" >> $GITHUB_PATH
           $HOME/.kubescape/bin/kubescape version
 
-      - name: Scan Minikube Cluster
+      - name: Run cluster scan
         timeout-minutes: 10
         run: |
           export KUBECONFIG=~/.kube/config
@@ -57,13 +59,13 @@ jobs:
           
           [ -f cluster-scan-results.json ] && jq '.' cluster-scan-results.json
 
-      - name: Upload Results
+      - name: Upload scan results
         uses: actions/upload-artifact@v4
         with:
           name: kubescape-results
           path: cluster-scan-results.json
 
-      - name: Cleanup
+      - name: Cleanup resources
         if: always()
         run: |
           minikube delete || true
