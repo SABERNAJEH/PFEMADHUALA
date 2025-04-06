@@ -84,7 +84,7 @@ jobs:
           else
             echo "message='- Cluster: Not scanned'" >> $GITHUB_ENV
           fi
-
+#TEST
       - name: Send Notification
         uses: dawidd6/action-send-mail@v3
         with:
