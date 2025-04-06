@@ -19,38 +19,28 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Install Kubescape (Standalone Binary)
-        id: install-kubescape
+      - name: Install Kubescape
         run: |
-          # Téléchargement direct du binaire
           curl -LO https://github.com/kubescape/kubescape/releases/latest/download/kubescape-ubuntu-latest
-          
-          # Installation
           chmod +x kubescape-ubuntu-latest
           mkdir -p $HOME/.kubescape/bin
           mv kubescape-ubuntu-latest $HOME/.kubescape/bin/kubescape
-          
-          # Vérification
-          echo "Installation verification:"
-          $HOME/.kubescape/bin/kubescape version
           echo "$HOME/.kubescape/bin" >> $GITHUB_PATH
-
-      - name: Verify Kubescape Installation
-        run: |
-          echo "Current PATH: $PATH"
-          which kubescape || echo "Kubescape not found in PATH"
           kubescape version
 
-      - name: Setup Kubernetes Cluster Access
-        if: ${{ secrets.KUBECONFIG }}
+      - name: Setup Kubernetes Access
+        id: setup-cluster
         run: |
-          mkdir -p $(dirname "$KUBECONFIG_PATH")
-          echo "${{ secrets.KUBECONFIG }}" > "$KUBECONFIG_PATH"
-          chmod 600 "$KUBECONFIG_PATH"
-          kubectl cluster-info --kubeconfig="$KUBECONFIG_PATH"
+          if [ -n "${{ secrets.KUBECONFIG }}" ]; then
+            mkdir -p $(dirname "$KUBECONFIG_PATH")
+            echo "${{ secrets.KUBECONFIG }}" > "$KUBECONFIG_PATH"
+            chmod 600 "$KUBECONFIG_PATH"
+            echo "has_kubeconfig=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_kubeconfig=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Scan Kubernetes Manifests
-        id: yaml-scan
         run: |
           kubescape scan *.yaml \
             --format json \
@@ -62,8 +52,8 @@ jobs:
             mv temp.json "${{ env.YAML_SCAN_OUTPUT }}"
 
       - name: Scan Running Cluster
-        if: ${{ secrets.KUBECONFIG }}
         id: cluster-scan
+        if: steps.setup-cluster.outputs.has_kubeconfig == 'true'
         run: |
           kubescape scan \
             --kubeconfig "$KUBECONFIG_PATH" \
@@ -82,10 +72,8 @@ jobs:
           path: |
             ${{ env.YAML_SCAN_OUTPUT }}
             ${{ env.CLUSTER_SCAN_OUTPUT }}
-          retention-days: 3
 
       - name: Send Notification
-        if: always()
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.gmail.com
@@ -97,7 +85,7 @@ jobs:
           body: |
             Security Scan Results:
             - YAML Files: ${{ steps.yaml-scan.outcome }}
-            - Cluster: ${{ steps.cluster-scan.outcome if secrets.KUBECONFIG else 'Not scanned' }}
+            - Cluster: ${{ steps.cluster-scan.outcome if steps.cluster-scan.conclusion == 'success' || steps.cluster-scan.conclusion == 'failure' else 'Not scanned' }}
             
             Workflow: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
           from: ${{ secrets.GMAIL_USERNAME }}
