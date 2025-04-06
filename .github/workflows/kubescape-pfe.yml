@@ -28,7 +28,7 @@ jobs:
           echo "$HOME/.kubescape/bin" >> $GITHUB_PATH
           echo "PATH=$PATH:$HOME/.kubescape/bin" >> $GITHUB_ENV
           
-          # Vérification de l'installation
+          # Vérification de l'installation11
           echo "Verifying installation..."
           $HOME/.kubescape/bin/kubescape version
 
