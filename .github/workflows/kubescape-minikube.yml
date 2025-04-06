@@ -6,31 +6,38 @@ on:
     branches: [main, master]
 
 env:
-  MINIKUBE_WAIT_TIMEOUT: "5m"  # Format correct avec unité de temps
+  MINIKUBE_WAIT_TIMEOUT: "5m"
 
 jobs:
   scan-minikube:
     runs-on: ubuntu-latest
     steps:
-      - name: Install dependencies
+      - name: Configure system prerequisites
         run: |
           sudo apt-get update -qq
           sudo apt-get install -qq -y conntrack socat
+          
+          # Désactiver le swap et configurer cgroup
+          sudo swapoff -a
+          sudo sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
+          echo "Configured system prerequisites"
 
-      - name: Download and install Minikube
+      - name: Install Minikube with proper settings
         run: |
           curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
           sudo install minikube-linux-amd64 /usr/local/bin/minikube
-          minikube version
-
-      - name: Start Minikube cluster
-        run: |
+          
+          # Démarrer Minikube avec les paramètres recommandés
           minikube start \
             --driver=docker \
             --force \
             --wait=all \
             --wait-timeout=${{ env.MINIKUBE_WAIT_TIMEOUT }} \
-            --extra-config=kubelet.resolv-conf=/run/systemd/resolve/resolv.conf
+            --extra-config=kubelet.cgroup-driver=systemd \
+            --extra-config=kubelet.resolv-conf=/run/systemd/resolve/resolv.conf \
+            --disable-driver-mounts \
+            --no-kubernetes=false \
+            --feature-gates=KubeletInUserNamespace=true
           
           minikube status
           minikube kubectl -- get nodes
