@@ -1,52 +1,96 @@
 name: Kubescape Security Scan
+
 on:
   push:
     branches: [master]
   pull_request:
     branches: [master]
 
+env:
+  YAML_SCAN_OUTPUT: "yaml-scan-results.json"
+  CLUSTER_SCAN_OUTPUT: "cluster-scan-results.json"
+  NOTIFICATION_RECIPIENTS: "najah.wchem@etudiant-isi.utm.tn, saber.fraj@etudiant-isi.utm.tn"
+
 jobs:
   security-scan:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v3
 
       - name: Install Kubescape
         run: |
-          # Install using official method
           curl -s https://raw.githubusercontent.com/kubescape/kubescape/master/install.sh | /bin/bash
-
-          # Verify installation
-          echo "Installed Kubescape version:"
-          $HOME/.kubescape/bin/kubescape version
-
-          # Add to PATH for current job1111
           echo "$HOME/.kubescape/bin" >> $GITHUB_PATH
+          kubescape version
 
-      - name: Run Kubescape scan
+      # Scan des fichiers YAML
+      - name: Scan Kubernetes manifests
+        id: yaml-scan
         run: |
-          $HOME/.kubescape/bin/kubescape scan *.yaml --format json --output results.json || echo "Scan completed with exit code $?"
-          [ -f results.json ] && jq '.' results.json || echo "No results file generated"
+          kubescape scan *.yaml \
+            --format json \
+            --output ${{ env.YAML_SCAN_OUTPUT }} \
+            || echo "YAML scan completed with exit code $?"
+          
+          [ -f "${{ env.YAML_SCAN_OUTPUT }}" ] && \
+            jq '.' ${{ env.YAML_SCAN_OUTPUT }} > temp.json && \
+            mv temp.json ${{ env.YAML_SCAN_OUTPUT }}
 
-      - name: Send email notification
+      # Configuration de l'accès au cluster
+      - name: Configure Kubernetes access
+        if: secrets.KUBECONFIG
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG }}" > ~/.kube/config
+          chmod 600 ~/.kube/config
+          kubectl cluster-info
+
+      # Scan du cluster en fonctionnement
+      - name: Scan running Kubernetes cluster
+        if: secrets.KUBECONFIG
+        id: cluster-scan
+        run: |
+          kubescape scan \
+            --submit \
+            --enable-host-scan \
+            --format json \
+            --output ${{ env.CLUSTER_SCAN_OUTPUT }} \
+            || echo "Cluster scan completed with exit code $?"
+          
+          [ -f "${{ env.CLUSTER_SCAN_OUTPUT }}" ] && \
+            jq '.' ${{ env.CLUSTER_SCAN_OUTPUT }} > temp.json && \
+            mv temp.json ${{ env.CLUSTER_SCAN_OUTPUT }}
+
+      - name: Upload scan results
+        uses: actions/upload-artifact@v3
+        with:
+          name: security-scan-results
+          path: |
+            ${{ env.YAML_SCAN_OUTPUT }}
+            ${{ env.CLUSTER_SCAN_OUTPUT }}
+
+      - name: Send notification
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.gmail.com
-          server_port: 465  # Recommandé pour Gmail
+          server_port: 465
           username: ${{ secrets.GMAIL_USERNAME }}
-          password: ${{ secrets.GMAIL_PASSWORD }}  # Utilisez un mot de passe d'application
-          secure: true     # Doit être false pour le port 587
+          password: ${{ secrets.GMAIL_PASSWORD }}
+          secure: true
           ignore_cert: true
           subject: "Kubescape Report - ${{ github.repository }}"
           body: |
-            Kubescape security scan completed.
+            Security scan results:
+            
+            - YAML manifests scan: ${{ steps.yaml-scan.outcome }}
+            - Cluster scan: ${{ steps.cluster-scan.outcome if secrets.KUBECONFIG else 'Not performed' }}
             
             Repository: ${{ github.repository }}
             Commit: ${{ github.sha }}
             Workflow: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-            
-            Scan results attached.
           from: ${{ secrets.GMAIL_USERNAME }}
-          to: najah.wchem@etudiant-isi.utm.tn, saber.fraj@etudiant-isi.utm.tn
-          attachments: results.json
+          to: ${{ env.NOTIFICATION_RECIPIENTS }}
+          attachments: |
+            ${{ env.YAML_SCAN_OUTPUT }}
+            ${{ env.CLUSTER_SCAN_OUTPUT }}
