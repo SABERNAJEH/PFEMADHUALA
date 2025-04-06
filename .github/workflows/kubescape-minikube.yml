@@ -10,6 +10,7 @@ env:
   MINIKUBE_VERSION: "v1.32.0"
   KUBESCAPE_VERSION: "v3.0.10"
   MINIKUBE_WAIT_TIMEOUT: "3m"
+  NOTIFICATION_RECIPIENTS: "your-email@example.com"  # Ajout d'un destinataire par défaut
 
 jobs:
   scan-minikube:
@@ -53,29 +54,23 @@ jobs:
         run: |
           curl -s https://raw.githubusercontent.com/kubescape/kubescape/master/install.sh | /bin/bash
           echo "$HOME/.kubescape/bin" >> $GITHUB_PATH
-          # Vérification de l'installation
           $HOME/.kubescape/bin/kubescape version
-
-      - name: Wait for PATH update
-        run: |
-          echo "Updated PATH: $PATH"
-          which kubescape || echo "kubescape not found in PATH"
 
       - name: Run Kubescape scan
         run: |
-          # Utilisation du chemin complet pour éviter les problèmes de PATH
           $HOME/.kubescape/bin/kubescape scan \
             --enable-host-scan \
             --format json \
-            --output cluster-scan-results.json \
+            --output ${{ env.CLUSTER_SCAN_OUTPUT }} \
             --exclude-namespaces kube-system,kubernetes-dashboard
 
       - name: Upload results
         uses: actions/upload-artifact@v4
         with:
           name: security-scan-${{ github.run_id }}
-          path: cluster-scan-results.json
+          path: ${{ env.CLUSTER_SCAN_OUTPUT }}
           retention-days: 1
+
       - name: Send Notification
         if: always()
         uses: dawidd6/action-send-mail@v3
@@ -86,12 +81,10 @@ jobs:
           password: ${{ secrets.GMAIL_PASSWORD }}
           secure: true
           subject: "Kubescape Report - ${{ github.repository }}"
-          body: file://${{ env.REPORT_FILE }}
+          body: "Kubescape scan completed. Please find attached the scan results."
           from: ${{ secrets.GMAIL_USERNAME }}
-          to: ${{ env.NOTIFICATION_RECIPIENTS }}
-          attachments: |
-            ${{ env.CLUSTER_SCAN_OUTPUT }}
-            ${{ env.REPORT_FILE }}
+          to: ${{ env.NOTIFICATION_RECIPIENTS }}  # Utilisation de la variable d'environnement
+          attachments: ${{ env.CLUSTER_SCAN_OUTPUT }}
 
       - name: Cleanup
         if: always()
