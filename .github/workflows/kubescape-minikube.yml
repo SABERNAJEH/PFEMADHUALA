@@ -3,7 +3,9 @@ name: Kubescape Minikube Scan
 on:
   workflow_dispatch:
   push:
-    branches: [main, master]
+    branches: [master]
+  pull_request:
+    branches: [master]
 
 jobs:
   scan-minikube:
@@ -20,9 +22,17 @@ jobs:
 
       - name: Install Kubescape
         run: |
+          # Installation complète avec vérification
           curl -s https://raw.githubusercontent.com/kubescape/kubescape/master/install.sh | /bin/bash
+          
+          # Ajout au PATH et vérification
+          export PATH=$PATH:$HOME/.kubescape/bin
           echo "$HOME/.kubescape/bin" >> $GITHUB_PATH
-          kubescape version
+          
+          # Vérification de l'installation
+          ls -la $HOME/.kubescape/bin/kubescape
+          $HOME/.kubescape/bin/kubescape version
+          which kubescape || echo "Kubescape not found in PATH"
 
       - name: Get Minikube kubeconfig
         run: |
@@ -32,14 +42,15 @@ jobs:
 
       - name: Scan Minikube Cluster
         run: |
-          kubescape scan --submit --enable-host-scan \
+          # Utilisation du chemin complet pour éviter les erreurs
+          $HOME/.kubescape/bin/kubescape scan --submit --enable-host-scan \
             --format json \
             --output cluster-scan-results.json
           
-          kubescape scan --submit --enable-host-scan --format pretty-print
+          $HOME/.kubescape/bin/kubescape scan --submit --enable-host-scan --format pretty-print
 
       - name: Upload Results
-        uses: actions/upload-artifact@v4  # Version mise à jour ici
+        uses: actions/upload-artifact@v4
         with:
           name: kubescape-results
           path: cluster-scan-results.json
