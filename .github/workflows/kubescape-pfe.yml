@@ -19,9 +19,23 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Install Kubescape
+        id: install-kubescape
         run: |
+          # Installation de Kubescape
           curl -s https://raw.githubusercontent.com/kubescape/kubescape/master/install.sh | /bin/bash
+          
+          # Ajout au PATH de manière persistante
           echo "$HOME/.kubescape/bin" >> $GITHUB_PATH
+          echo "PATH=$PATH:$HOME/.kubescape/bin" >> $GITHUB_ENV
+          
+          # Vérification de l'installation
+          echo "Verifying installation..."
+          $HOME/.kubescape/bin/kubescape version
+
+      - name: Verify Kubescape in PATH
+        run: |
+          echo "Current PATH: $PATH"
+          which kubescape || echo "Kubescape not found in PATH"
           kubescape version
 
       - name: Scan Kubernetes manifests
@@ -36,58 +50,9 @@ jobs:
             jq '.' ${{ env.YAML_SCAN_OUTPUT }} > temp.json && \
             mv temp.json ${{ env.YAML_SCAN_OUTPUT }}
 
-      - name: Configure Kubernetes access
-        if: ${{ github.event_name != 'pull_request' }}
-        run: |
-          mkdir -p ~/.kube
-          echo "${{ secrets.KUBECONFIG }}" > ~/.kube/config
-          chmod 600 ~/.kube/config
-          kubectl cluster-info
-
-      - name: Scan running Kubernetes cluster
-        if: ${{ github.event_name != 'pull_request' }}
-        id: cluster-scan
-        run: |
-          kubescape scan \
-            --submit \
-            --enable-host-scan \
-            --format json \
-            --output ${{ env.CLUSTER_SCAN_OUTPUT }} \
-            || echo "Cluster scan completed with exit code $?"
-          
-          [ -f "${{ env.CLUSTER_SCAN_OUTPUT }}" ] && \
-            jq '.' ${{ env.CLUSTER_SCAN_OUTPUT }} > temp.json && \
-            mv temp.json ${{ env.CLUSTER_SCAN_OUTPUT }}
-
       - name: Upload scan results
-        uses: actions/upload-artifact@v4  # Changement à la version v4
+        uses: actions/upload-artifact@v4
         with:
           name: security-scan-results
           path: |
             ${{ env.YAML_SCAN_OUTPUT }}
-            ${{ env.CLUSTER_SCAN_OUTPUT }}
-
-      - name: Send notification
-        uses: dawidd6/action-send-mail@v3
-        with:
-          server_address: smtp.gmail.com
-          server_port: 465
-          username: ${{ secrets.GMAIL_USERNAME }}
-          password: ${{ secrets.GMAIL_PASSWORD }}
-          secure: true
-          ignore_cert: true
-          subject: "Kubescape Report - ${{ github.repository }}"
-          body: |
-            Security scan results:
-            
-            - YAML manifests scan: ${{ steps.yaml-scan.outcome }}
-            - Cluster scan: ${{ steps.cluster-scan.outcome }}
-            
-            Repository: ${{ github.repository }}
-            Commit: ${{ github.sha }}
-            Workflow: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          from: ${{ secrets.GMAIL_USERNAME }}
-          to: ${{ env.NOTIFICATION_RECIPIENTS }}
-          attachments: |
-            ${{ env.YAML_SCAN_OUTPUT }}
-            ${{ env.CLUSTER_SCAN_OUTPUT }}
