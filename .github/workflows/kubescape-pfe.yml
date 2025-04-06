@@ -19,36 +19,26 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Install Kubescape (Official Method)
+      - name: Install Kubescape
         run: |
-          # Installation via la méthode officielle avec vérification
           curl -s https://raw.githubusercontent.com/kubescape/kubescape/master/install.sh | /bin/bash
-          
-          # Ajout au PATH et vérification
-          export PATH=$PATH:$HOME/.kubescape/bin
           echo "$HOME/.kubescape/bin" >> $GITHUB_PATH
-          
-          # Double vérification de l'installation
-          ls -la $HOME/.kubescape/bin
           $HOME/.kubescape/bin/kubescape version
 
-      - name: Verify Kubescape Installation
+      - name: Verify Installation
         run: |
-          echo "Current PATH: $PATH"
-          which kubescape || { echo "Kubescape not found in PATH"; exit 1; }
+          which kubescape
           kubescape version
 
       - name: Setup Kubernetes Access
         id: setup-cluster
         run: |
           if [ -n "${{ secrets.KUBECONFIG }}" ]; then
-            echo "Configuring Kubernetes access..."
             mkdir -p $(dirname "$KUBECONFIG_PATH")
             echo "${{ secrets.KUBECONFIG }}" > "$KUBECONFIG_PATH"
             chmod 600 "$KUBECONFIG_PATH"
             echo "cluster_scanned=true" >> $GITHUB_ENV
           else
-            echo "No KUBECONFIG secret found, skipping cluster scan"
             echo "cluster_scanned=false" >> $GITHUB_ENV
           fi
 
@@ -58,24 +48,25 @@ jobs:
           kubescape scan *.yaml \
             --format json \
             --output "${{ env.YAML_SCAN_OUTPUT }}" \
-            || { echo "YAML scan failed with exit code $?"; exit 0; }
+            || echo "YAML scan completed with exit code $?"
           
-          if [ -f "${{ env.YAML_SCAN_OUTPUT }}" ]; then
-            jq '.' "${{ env.YAML_SCAN_OUTPUT }}" > temp.json && mv temp.json "${{ env.YAML_SCAN_OUTPUT }}"
-          fi
+          [ -f "${{ env.YAML_SCAN_OUTPUT }}" ] && \
+            jq '.' "${{ env.YAML_SCAN_OUTPUT }}" > temp.json && \
+            mv temp.json "${{ env.YAML_SCAN_OUTPUT }}"
 
       - name: Scan Running Cluster
         if: env.cluster_scanned == 'true'
         id: cluster-scan
         run: |
-          KUBECONFIG="$KUBECONFIG_PATH" kubescape scan \
+          kubescape scan \
+            --kubeconfig "$KUBECONFIG_PATH" \
             --format json \
             --output "${{ env.CLUSTER_SCAN_OUTPUT }}" \
-            || { echo "Cluster scan failed with exit code $?"; exit 0; }
+            || echo "Cluster scan completed with exit code $?"
           
-          if [ -f "${{ env.CLUSTER_SCAN_OUTPUT }}" ]; then
-            jq '.' "${{ env.CLUSTER_SCAN_OUTPUT }}" > temp.json && mv temp.json "${{ env.CLUSTER_SCAN_OUTPUT }}"
-          fi
+          [ -f "${{ env.CLUSTER_SCAN_OUTPUT }}" ] && \
+            jq '.' "${{ env.CLUSTER_SCAN_OUTPUT }}" > temp.json && \
+            mv temp.json "${{ env.CLUSTER_SCAN_OUTPUT }}"
 
       - name: Upload Scan Results
         uses: actions/upload-artifact@v4
@@ -84,23 +75,15 @@ jobs:
           path: |
             ${{ env.YAML_SCAN_OUTPUT }}
             ${{ env.CLUSTER_SCAN_OUTPUT }}
-          if-no-files-found: warn
-          retention-days: 3
 
       - name: Prepare Notification
         id: prepare-notification
         run: |
           if [ "${{ env.cluster_scanned }}" = "true" ]; then
-            CLUSTER_STATUS="${{ steps.cluster-scan.outcome }}"
+            echo "message='- Cluster: ${{ steps.cluster-scan.outcome }}'" >> $GITHUB_ENV
           else
-            CLUSTER_STATUS="Not scanned"
+            echo "message='- Cluster: Not scanned'" >> $GITHUB_ENV
           fi
-          
-          echo "NOTIFICATION_BODY=Security Scan Results:
-- YAML Files: ${{ steps.yaml-scan.outcome }}
-- Cluster: $CLUSTER_STATUS
-
-Workflow: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> $GITHUB_ENV
 
       - name: Send Notification
         uses: dawidd6/action-send-mail@v3
@@ -111,7 +94,12 @@ Workflow: https://github.com/${{ github.repository }}/actions/runs/${{ github.ru
           password: ${{ secrets.GMAIL_PASSWORD }}
           secure: true
           subject: "Kubescape Report - ${{ github.repository }}"
-          body: "${{ env.NOTIFICATION_BODY }}"
+          body: |
+            Security Scan Results:
+            - YAML Files: ${{ steps.yaml-scan.outcome }}
+            ${{ env.message }}
+            
+            Workflow: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
           from: ${{ secrets.GMAIL_USERNAME }}
           to: ${{ env.NOTIFICATION_RECIPIENTS }}
           attachments: |
@@ -122,6 +110,5 @@ Workflow: https://github.com/${{ github.repository }}/actions/runs/${{ github.ru
         if: always()
         run: |
           if [ -f "$KUBECONFIG_PATH" ]; then
-            echo "Cleaning up kubeconfig..."
-            rm -f "$KUBECONFIG_PATH" || echo "Cleanup failed but continuing"
+            rm -f "$KUBECONFIG_PATH" || true
           fi
