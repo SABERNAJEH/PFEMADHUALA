@@ -62,7 +62,7 @@ jobs:
             --enable-host-scan \
             --format json \
             --output ${{ env.CLUSTER_SCAN_OUTPUT }} \
-            --exclude-namespaces kube-system,kubernetes-dashboard
+           # --exclude-namespaces kube-system,kubernetes-dashboard
 
       - name: Upload results
         uses: actions/upload-artifact@v4
