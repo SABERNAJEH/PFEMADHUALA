@@ -1,12 +1,10 @@
-yaml
-Copy
 name: Kubescape Security Scan
 
 on:
   push:
-    branches: [master]
+    branches: [ master ]  # Espaces ajoutés pour conformité YAML
   pull_request:
-    branches: [master]
+    branches: [ master ]  # Espaces ajoutés ici aussi
 
 env:
   YAML_SCAN_OUTPUT: "yaml-scan-results.json"
@@ -30,11 +28,9 @@ jobs:
         id: setup-cluster
         run: |
           mkdir -p ~/.kube
-          # Décodage du kubeconfig si encodé en base64
           echo "${{ secrets.KUBECONFIG }}" | base64 -d > ~/.kube/config || echo "${{ secrets.KUBECONFIG }}" > ~/.kube/config
           chmod 600 ~/.kube/config
           
-          # Vérification du format du fichier
           if ! kubectl config view --raw &> /dev/null; then
             echo "::error::Invalid kubeconfig format"
             exit 1
@@ -99,7 +95,8 @@ jobs:
           attachments: |
             ${{ env.YAML_SCAN_OUTPUT }}
             ${{ env.CLUSTER_SCAN_OUTPUT }}
-     - name: Cleanup
+
+      - name: Cleanup
         if: always()
         run: |
           if [ -f ~/.kube/config ]; then
