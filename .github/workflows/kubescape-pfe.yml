@@ -56,3 +56,27 @@ jobs:
           name: security-scan-results
           path: |
             ${{ env.YAML_SCAN_OUTPUT }}
+            ${{ env.CLUSTER_SCAN_OUTPUT }}
+      - name: Send notification
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.GMAIL_USERNAME }}
+          password: ${{ secrets.GMAIL_PASSWORD }}
+          secure: true
+          ignore_cert: true
+          subject: "Kubescape Report - ${{ github.repository }}"
+          body: |
+            Security scan results:
+            - YAML manifests scan: ${{ steps.yaml-scan.outcome }}
+            - Cluster scan: ${{ steps.cluster-scan.outcome }}
+            
+            Repository: ${{ github.repository }}
+            Commit: ${{ github.sha }}
+            Workflow: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          from: ${{ secrets.GMAIL_USERNAME }}
+          to: ${{ env.NOTIFICATION_RECIPIENTS }}
+          attachments: |
+            ${{ env.YAML_SCAN_OUTPUT }}
+            ${{ env.CLUSTER_SCAN_OUTPUT }}
