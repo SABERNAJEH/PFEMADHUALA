@@ -62,6 +62,10 @@ jobs:
             --enable-host-scan \
             --format json \
             --output ${{ env.CLUSTER_SCAN_OUTPUT }} \
+            || echo "cluster scan completed with exit code $?"
+            [ -f "${{ env.CLUSTER_SCAN_OUTPUT }}" ] && \
+            jq '.' "${{ env.CLUSTER_SCAN_OUTPUT }}" > temp1.json && \
+            mv temp1.json "${{ env.CLUSTER_SCAN_OUTPUT }}"
            # --exclude-namespaces kube-system,kubernetes-dashboard
 
       - name: Upload results
