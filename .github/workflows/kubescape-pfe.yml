@@ -35,12 +35,13 @@ jobs:
             mkdir -p $(dirname "$KUBECONFIG_PATH")
             echo "${{ secrets.KUBECONFIG }}" > "$KUBECONFIG_PATH"
             chmod 600 "$KUBECONFIG_PATH"
-            echo "has_kubeconfig=true" >> $GITHUB_OUTPUT
+            echo "cluster_scanned=true" >> $GITHUB_ENV
           else
-            echo "has_kubeconfig=false" >> $GITHUB_OUTPUT
+            echo "cluster_scanned=false" >> $GITHUB_ENV
           fi
 
       - name: Scan Kubernetes Manifests
+        id: yaml-scan
         run: |
           kubescape scan *.yaml \
             --format json \
@@ -52,8 +53,8 @@ jobs:
             mv temp.json "${{ env.YAML_SCAN_OUTPUT }}"
 
       - name: Scan Running Cluster
+        if: env.cluster_scanned == 'true'
         id: cluster-scan
-        if: steps.setup-cluster.outputs.has_kubeconfig == 'true'
         run: |
           kubescape scan \
             --kubeconfig "$KUBECONFIG_PATH" \
@@ -73,6 +74,21 @@ jobs:
             ${{ env.YAML_SCAN_OUTPUT }}
             ${{ env.CLUSTER_SCAN_OUTPUT }}
 
+      - name: Prepare Notification Body
+        id: prepare-notification
+        run: |
+          if [ "${{ env.cluster_scanned }}" = "true" ]; then
+            echo "cluster_status=${{ steps.cluster-scan.outcome }}" >> $GITHUB_ENV
+            echo "body_line='- Cluster: ${{ steps.cluster-scan.outcome }}'" >> $GITHUB_ENV
+          else
+            echo "body_line='- Cluster: Not scanned'" >> $GITHUB_ENV
+          fi
+          echo "::set-output name=notification_body::Security Scan Results:
+            - YAML Files: ${{ steps.yaml-scan.outcome }}
+            ${{ env.body_line }}
+            
+            Workflow: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
       - name: Send Notification
         uses: dawidd6/action-send-mail@v3
         with:
@@ -82,12 +98,7 @@ jobs:
           password: ${{ secrets.GMAIL_PASSWORD }}
           secure: true
           subject: "Kubescape Report - ${{ github.repository }}"
-          body: |
-            Security Scan Results:
-            - YAML Files: ${{ steps.yaml-scan.outcome }}
-            - Cluster: ${{ steps.cluster-scan.outcome if steps.cluster-scan.conclusion == 'success' || steps.cluster-scan.conclusion == 'failure' else 'Not scanned' }}
-            
-            Workflow: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          body: "${{ steps.prepare-notification.outputs.notification_body }}"
           from: ${{ secrets.GMAIL_USERNAME }}
           to: ${{ env.NOTIFICATION_RECIPIENTS }}
           attachments: |
