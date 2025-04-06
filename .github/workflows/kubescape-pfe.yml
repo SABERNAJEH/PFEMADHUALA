@@ -10,7 +10,7 @@ env:
   YAML_SCAN_OUTPUT: "yaml-scan-results.json"
   CLUSTER_SCAN_OUTPUT: "cluster-scan-results.json"
   NOTIFICATION_RECIPIENTS: "najah.wchem@etudiant-isi.utm.tn, saber.fraj@etudiant-isi.utm.tn"
-
+#tet
 jobs:
   security-scan:
     runs-on: ubuntu-latest
