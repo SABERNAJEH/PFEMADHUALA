@@ -2,15 +2,15 @@ name: Kubescape Security Scan
 
 on:
   push:
-    branches: [ master ]
+    branches: [master]
   pull_request:
-    branches: [ master ]
+    branches: [master]
 
 env:
   YAML_SCAN_OUTPUT: "yaml-scan-results.json"
   CLUSTER_SCAN_OUTPUT: "cluster-scan-results.json"
   NOTIFICATION_RECIPIENTS: "najah.wchem@etudiant-isi.utm.tn, saber.fraj@etudiant-isi.utm.tn"
-  KUBECONFIG_TIMEOUT: "10"  # Timeout en secondes pour la connexion au cluster
+  KUBECONFIG_TIMEOUT: "10"
 
 jobs:
   security-scan:
@@ -30,33 +30,28 @@ jobs:
         run: |
           mkdir -p ~/.kube
           
-          # Vérification du secret
           if [ -z "${{ secrets.KUBECONFIG }}" ]; then
             echo "::warning::No KUBECONFIG secret found"
             echo "cluster_available=false" >> $GITHUB_ENV
             exit 0
           fi
           
-          # Écriture du kubeconfig
           echo "${{ secrets.KUBECONFIG }}" > ~/.kube/config
           chmod 600 ~/.kube/config
           
-          # Validation basique du format
           if ! kubectl config view --raw &> /dev/null; then
             echo "::error::Invalid kubeconfig format"
             echo "cluster_available=false" >> $GITHUB_ENV
             exit 0
           fi
           
-          # Test de connexion avec timeout
-          echo "Testing cluster connection with ${{ env.KUBECONFIG_TIMEOUT }}s timeout..."
           export KUBECONFIG=~/.kube/config
           if timeout ${{ env.KUBECONFIG_TIMEOUT }} kubectl cluster-info &> /dev/null; then
-            echo "::info::✅ Successfully connected to cluster"
+            echo "::info::✅ Cluster connection successful"
             echo "CLUSTER_NAME=$(kubectl config current-context)" >> $GITHUB_ENV
             echo "cluster_available=true" >> $GITHUB_ENV
           else
-            echo "::warning::⚠️ Could not connect to cluster (timeout after ${{ env.KUBECONFIG_TIMEOUT }}s)"
+            echo "::warning::⚠️ Cluster connection failed"
             echo "cluster_available=false" >> $GITHUB_ENV
           fi
 
@@ -75,7 +70,7 @@ jobs:
       - name: Scan Running Cluster
         if: env.cluster_available == 'true'
         id: cluster-scan
-        timeout-minutes: 5  # Timeout pour le scan complet
+        timeout-minutes: 5
         run: |
           export KUBECONFIG=~/.kube/config
           kubescape scan \
@@ -88,21 +83,24 @@ jobs:
             jq '.' "${{ env.CLUSTER_SCAN_OUTPUT }}" > temp.json && \
             mv temp.json "${{ env.CLUSTER_SCAN_OUTPUT }}"
 
-      - name: Prepare Report
-        id: prepare-report
+      - name: Generate Report File
+        id: generate-report
         run: |
+          REPORT_FILE="report.txt"
+          echo "Security Scan Report" > $REPORT_FILE
+          echo "-------------------" >> $REPORT_FILE
+          echo "- Repository: ${{ github.repository }}" >> $REPORT_FILE
+          echo "- Timestamp: $(date)" >> $REPORT_FILE
+          echo "- YAML Scan: ${{ steps.yaml-scan.outcome }}" >> $REPORT_FILE
+          
           if [ "${{ env.cluster_available }}" = "true" ]; then
-            echo "cluster_status=${{ steps.cluster-scan.outcome }}" >> $GITHUB_ENV
+            echo "- Cluster Scan: ${{ steps.cluster-scan.outcome }}" >> $REPORT_FILE
           else
-            echo "cluster_status=Cluster unavailable (connection timeout)" >> $GITHUB_ENV
+            echo "- Cluster Scan: Not performed (cluster unavailable)" >> $REPORT_FILE
           fi
           
-          echo "REPORT_CONTENT=Security Scan Report
-          - Repository: ${{ github.repository }}
-          - Timestamp: $(date)
-          - YAML Scan: ${{ steps.yaml-scan.outcome }}
-          - Cluster Status: ${{ env.cluster_status }}
-          - Workflow: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> $GITHUB_ENV
+          echo "- Workflow: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> $REPORT_FILE
+          echo "REPORT_FILE=$REPORT_FILE" >> $GITHUB_ENV
 
       - name: Upload Results
         uses: actions/upload-artifact@v4
@@ -111,6 +109,7 @@ jobs:
           path: |
             ${{ env.YAML_SCAN_OUTPUT }}
             ${{ env.CLUSTER_SCAN_OUTPUT }}
+            ${{ env.REPORT_FILE }}
 
       - name: Send Notification
         if: always()
@@ -122,14 +121,16 @@ jobs:
           password: ${{ secrets.GMAIL_PASSWORD }}
           secure: true
           subject: "Kubescape Report - ${{ github.repository }}"
-          body: "${{ env.REPORT_CONTENT }}"
+          body: file://${{ env.REPORT_FILE }}
           from: ${{ secrets.GMAIL_USERNAME }}
           to: ${{ env.NOTIFICATION_RECIPIENTS }}
           attachments: |
             ${{ env.YAML_SCAN_OUTPUT }}
             ${{ env.CLUSTER_SCAN_OUTPUT }}
+            ${{ env.REPORT_FILE }}
 
       - name: Cleanup
         if: always()
         run: |
           [ -f ~/.kube/config ] && rm -f ~/.kube/config
+          [ -f ${{ env.REPORT_FILE }} ] && rm -f ${{ env.REPORT_FILE }}
