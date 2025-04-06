@@ -2,9 +2,9 @@ name: Kubescape Security Scan
 
 on:
   push:
-    branches: [ master ]  # Espaces ajoutés pour conformité YAML
+    branches: [ master ]
   pull_request:
-    branches: [ master ]  # Espaces ajoutés ici aussi
+    branches: [ master ]
 
 env:
   YAML_SCAN_OUTPUT: "yaml-scan-results.json"
@@ -28,17 +28,31 @@ jobs:
         id: setup-cluster
         run: |
           mkdir -p ~/.kube
-          echo "${{ secrets.KUBECONFIG }}" | base64 -d > ~/.kube/config || echo "${{ secrets.KUBECONFIG }}" > ~/.kube/config
+          
+          # Essai de décodage base64 seulement si nécessaire
+          if echo "${{ secrets.KUBECONFIG }}" | grep -qE '^[A-Za-z0-9+/]+={0,2}$'; then
+            echo "${{ secrets.KUBECONFIG }}" | base64 -d > ~/.kube/config || {
+              echo "::warning::Failed to decode as base64, trying raw format"
+              echo "${{ secrets.KUBECONFIG }}" > ~/.kube/config
+            }
+          else
+            echo "${{ secrets.KUBECONFIG }}" > ~/.kube/config
+          fi
+          
           chmod 600 ~/.kube/config
           
-          if ! kubectl config view --raw &> /dev/null; then
-            echo "::error::Invalid kubeconfig format"
+          # Vérification améliorée du kubeconfig
+          if ! kubectl config view --raw >/dev/null 2>&1; then
+            echo "::error::Invalid kubeconfig format. Please check your secret."
+            echo "::group::Kubeconfig Content"
+            cat ~/.kube/config
+            echo "::endgroup::"
             exit 1
           fi
           
           export KUBECONFIG=~/.kube/config
-          kubectl cluster-info
           echo "CLUSTER_NAME=$(kubectl config current-context)" >> $GITHUB_ENV
+          kubectl cluster-info
 
       - name: Scan Kubernetes Manifests
         id: yaml-scan
@@ -65,7 +79,7 @@ jobs:
           [ -f "${{ env.CLUSTER_SCAN_OUTPUT }}" ] && \
             jq '.' "${{ env.CLUSTER_SCAN_OUTPUT }}" > temp.json && \
             mv temp.json "${{ env.CLUSTER_SCAN_OUTPUT }}"
-#test
+
       - name: Upload Scan Results
         uses: actions/upload-artifact@v4
         with:
@@ -75,6 +89,7 @@ jobs:
             ${{ env.CLUSTER_SCAN_OUTPUT }}
 
       - name: Send Notification
+        if: always()
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.gmail.com
@@ -87,7 +102,7 @@ jobs:
             Security Scan Results:
             
             - YAML Files: ${{ steps.yaml-scan.outcome }}
-            - Cluster Scan: ${{ steps.cluster-scan.outcome }}
+            - Cluster: ${{ steps.cluster-scan.outcome if steps.cluster-scan else 'Not scanned' }}
             
             Workflow: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
           from: ${{ secrets.GMAIL_USERNAME }}
