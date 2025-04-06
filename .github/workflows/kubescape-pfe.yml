@@ -10,7 +10,7 @@ env:
   YAML_SCAN_OUTPUT: "yaml-scan-results.json"
   CLUSTER_SCAN_OUTPUT: "cluster-scan-results.json"
   NOTIFICATION_RECIPIENTS: "najah.wchem@etudiant-isi.utm.tn, saber.fraj@etudiant-isi.utm.tn"
-  KUBECONFIG_PATH: "${{ github.workspace }}/kubeconfig"  # Chemin sécurisé pour le kubeconfig
+  KUBECONFIG_PATH: "${{ github.workspace }}/kubeconfig"
 
 jobs:
   security-scan:
@@ -19,32 +19,35 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Install Kubescape
+      - name: Install Kubescape (Standalone Binary)
         id: install-kubescape
         run: |
-          # Installation via la méthode recommandée
-          curl -s https://raw.githubusercontent.com/kubescape/kubescape/master/install.sh | /bin/bash
+          # Téléchargement direct du binaire
+          curl -LO https://github.com/kubescape/kubescape/releases/latest/download/kubescape-ubuntu-latest
           
-          # Configuration du PATH
-          echo "$HOME/.kubescape/bin" >> $GITHUB_PATH
-          echo "$HOME/.kubescape/bin" >> $GITHUB_ENV
+          # Installation
+          chmod +x kubescape-ubuntu-latest
+          mkdir -p $HOME/.kubescape/bin
+          mv kubescape-ubuntu-latest $HOME/.kubescape/bin/kubescape
           
           # Vérification
+          echo "Installation verification:"
           $HOME/.kubescape/bin/kubescape version
-          echo "Installation path: $(which kubescape)"
+          echo "$HOME/.kubescape/bin" >> $GITHUB_PATH
+
+      - name: Verify Kubescape Installation
+        run: |
+          echo "Current PATH: $PATH"
+          which kubescape || echo "Kubescape not found in PATH"
+          kubescape version
 
       - name: Setup Kubernetes Cluster Access
-        id: setup-cluster
+        if: ${{ secrets.KUBECONFIG }}
         run: |
-          # Création sécurisée du kubeconfig
           mkdir -p $(dirname "$KUBECONFIG_PATH")
           echo "${{ secrets.KUBECONFIG }}" > "$KUBECONFIG_PATH"
           chmod 600 "$KUBECONFIG_PATH"
-          
-          # Vérification de la connexion
-          export KUBECONFIG="$KUBECONFIG_PATH"
-          kubectl cluster-info
-          echo "CLUSTER_NAME=$(kubectl config current-context)" >> $GITHUB_ENV
+          kubectl cluster-info --kubeconfig="$KUBECONFIG_PATH"
 
       - name: Scan Kubernetes Manifests
         id: yaml-scan
@@ -54,31 +57,23 @@ jobs:
             --output "${{ env.YAML_SCAN_OUTPUT }}" \
             || echo "YAML scan completed with exit code $?"
           
-          # Formatage des résultats
-          if [ -f "${{ env.YAML_SCAN_OUTPUT }}" ]; then
-            jq '.' "${{ env.YAML_SCAN_OUTPUT }}" > temp.json && mv temp.json "${{ env.YAML_SCAN_OUTPUT }}"
-            echo "YAML_SCAN_STATUS=success" >> $GITHUB_ENV
-          else
-            echo "YAML_SCAN_STATUS=failed" >> $GITHUB_ENV
-          fi
+          [ -f "${{ env.YAML_SCAN_OUTPUT }}" ] && \
+            jq '.' "${{ env.YAML_SCAN_OUTPUT }}" > temp.json && \
+            mv temp.json "${{ env.YAML_SCAN_OUTPUT }}"
 
       - name: Scan Running Cluster
+        if: ${{ secrets.KUBECONFIG }}
         id: cluster-scan
         run: |
-          export KUBECONFIG="$KUBECONFIG_PATH"
           kubescape scan \
-            --submit \
-            --enable-host-scan \
+            --kubeconfig "$KUBECONFIG_PATH" \
             --format json \
             --output "${{ env.CLUSTER_SCAN_OUTPUT }}" \
             || echo "Cluster scan completed with exit code $?"
           
-          if [ -f "${{ env.CLUSTER_SCAN_OUTPUT }}" ]; then
-            jq '.' "${{ env.CLUSTER_SCAN_OUTPUT }}" > temp.json && mv temp.json "${{ env.CLUSTER_SCAN_OUTPUT }}"
-            echo "CLUSTER_SCAN_STATUS=success" >> $GITHUB_ENV
-          else
-            echo "CLUSTER_SCAN_STATUS=failed" >> $GITHUB_ENV
-          fi
+          [ -f "${{ env.CLUSTER_SCAN_OUTPUT }}" ] && \
+            jq '.' "${{ env.CLUSTER_SCAN_OUTPUT }}" > temp.json && \
+            mv temp.json "${{ env.CLUSTER_SCAN_OUTPUT }}"
 
       - name: Upload Scan Results
         uses: actions/upload-artifact@v4
@@ -87,43 +82,31 @@ jobs:
           path: |
             ${{ env.YAML_SCAN_OUTPUT }}
             ${{ env.CLUSTER_SCAN_OUTPUT }}
-          retention-days: 7
+          retention-days: 3
 
-      - name: Send Security Report
-        uses: dawidd6/action-send-mail@v3
+      - name: Send Notification
         if: always()
+        uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.gmail.com
           server_port: 465
           username: ${{ secrets.GMAIL_USERNAME }}
           password: ${{ secrets.GMAIL_PASSWORD }}
           secure: true
-          ignore_cert: true
-          subject: "Kubescape Report - ${{ env.CLUSTER_NAME || 'No Cluster' }} - ${{ github.repository }}"
+          subject: "Kubescape Report - ${{ github.repository }}"
           body: |
-            Security Scan Report - ${{ github.repository }}
+            Security Scan Results:
+            - YAML Files: ${{ steps.yaml-scan.outcome }}
+            - Cluster: ${{ steps.cluster-scan.outcome if secrets.KUBECONFIG else 'Not scanned' }}
             
-            Cluster: ${{ env.CLUSTER_NAME || 'Not scanned' }}
-            Scan Date: ${{ steps.setup-cluster.outputs.current-date || 'N/A' }}
-            
-            Results:
-            - YAML Manifests: ${{ env.YAML_SCAN_STATUS }}
-            - Cluster: ${{ env.CLUSTER_SCAN_STATUS }}
-            
-            Workflow Details:
-            - Commit: ${{ github.sha }}
-            - Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-            
-            See attached files for detailed results.
+            Workflow: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
           from: ${{ secrets.GMAIL_USERNAME }}
           to: ${{ env.NOTIFICATION_RECIPIENTS }}
           attachments: |
             ${{ env.YAML_SCAN_OUTPUT }}
             ${{ env.CLUSTER_SCAN_OUTPUT }}
 
-      - name: Cleanup Sensitive Files
+      - name: Cleanup
         if: always()
         run: |
-          if [ -f "$KUBECONFIG_PATH" ]; then
-            shred -u "$KUBECONFIG_PATH"
-          fi
+          [ -f "$KUBECONFIG_PATH" ] && rm -f "$KUBECONFIG_PATH"
