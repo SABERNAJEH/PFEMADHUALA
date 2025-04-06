@@ -36,11 +36,10 @@ jobs:
             --format json \
             --output cluster-scan-results.json
           
-          # Optional: Print summary
           kubescape scan --submit --enable-host-scan --format pretty-print
 
       - name: Upload Results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4  # Version mise à jour ici
         with:
           name: kubescape-results
           path: cluster-scan-results.json
