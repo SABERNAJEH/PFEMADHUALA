@@ -29,26 +29,29 @@ jobs:
         run: |
           mkdir -p ~/.kube
           
-          # Tentative de décodage base64 ou utilisation directe
-          if echo "${{ secrets.KUBECONFIG }}" | grep -qE '^[A-Za-z0-9+/]+={0,2}$'; then
-            echo "${{ secrets.KUBECONFIG }}" | base64 -d > ~/.kube/config || {
-              echo "::warning::Failed to decode as base64, trying raw format"
-              echo "${{ secrets.KUBECONFIG }}" > ~/.kube/config
-            }
-          else
-            echo "${{ secrets.KUBECONFIG }}" > ~/.kube/config
+          # Écriture du kubeconfig avec validation
+          echo "Processing kubeconfig..."
+          if [ -z "${{ secrets.KUBECONFIG }}" ]; then
+            echo "::warning::No KUBECONFIG secret found. Cluster scan will be skipped."
+            echo "cluster_available=false" >> $GITHUB_ENV
+            exit 0
           fi
           
-          chmod 600 ~/.kube/config
+          # Essai d'écriture du fichier
+          echo "${{ secrets.KUBECONFIG }}" > ~/.kube/config.tmp
           
-          # Vérification du kubeconfig
-          if ! kubectl config view --raw >/dev/null 2>&1; then
-            echo "::error::Invalid kubeconfig format"
-            echo "::group::Kubeconfig Content"
-            cat ~/.kube/config
-            echo "::endgroup::"
+          # Validation du format
+          if ! kubectl config view --kubeconfig ~/.kube/config.tmp --raw &> /dev/null; then
+            echo "::error::Invalid kubeconfig format. Please verify your secret contains valid YAML."
+            echo "::group::Kubeconfig Content (first 100 chars)"
+            head -c 100 ~/.kube/config.tmp
+            echo -e "\n::endgroup::"
             exit 1
           fi
+          
+          mv ~/.kube/config.tmp ~/.kube/config
+          chmod 600 ~/.kube/config
+          echo "cluster_available=true" >> $GITHUB_ENV
           
           export KUBECONFIG=~/.kube/config
           echo "CLUSTER_NAME=$(kubectl config current-context)" >> $GITHUB_ENV
@@ -67,6 +70,7 @@ jobs:
             mv temp.json "${{ env.YAML_SCAN_OUTPUT }}"
 
       - name: Scan Running Cluster
+        if: env.cluster_available == 'true'
         id: cluster-scan
         run: |
           export KUBECONFIG=~/.kube/config
@@ -80,20 +84,19 @@ jobs:
             jq '.' "${{ env.CLUSTER_SCAN_OUTPUT }}" > temp.json && \
             mv temp.json "${{ env.CLUSTER_SCAN_OUTPUT }}"
 
-      - name: Prepare Notification Data
+      - name: Prepare Notification
         id: prepare-notification
         run: |
-          if [ -n "${{ env.CLUSTER_NAME }}" ]; then
-            echo "cluster_status=${{ steps.cluster-scan.outcome }}" >> $GITHUB_ENV
+          if [ "${{ env.cluster_available }}" = "true" ]; then
+            echo "cluster_status=${{ steps.cluster-scan.outcome || 'unknown' }}" >> $GITHUB_ENV
           else
-            echo "cluster_status=Not scanned" >> $GITHUB_ENV
+            echo "cluster_status=Not scanned (invalid/missing kubeconfig)" >> $GITHUB_ENV
           fi
           
-          echo "::set-output name=notification_body::Security Scan Results:
+          echo "::set-output name=report::Security Scan Results:
             - YAML Files: ${{ steps.yaml-scan.outcome }}
             - Cluster: ${{ env.cluster_status }}
-            - Cluster Name: ${{ env.CLUSTER_NAME || 'N/A' }}
-            - Timestamp: $(date)
+            - Timestamp: $(date +"%Y-%m-%d %H:%M:%S")
             Workflow: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
       - name: Upload Scan Results
@@ -103,7 +106,8 @@ jobs:
           path: |
             ${{ env.YAML_SCAN_OUTPUT }}
             ${{ env.CLUSTER_SCAN_OUTPUT }}
-          retention-days: 7
+          if-no-files-found: warn
+          retention-days: 3
 
       - name: Send Notification
         if: always()
@@ -115,7 +119,7 @@ jobs:
           password: ${{ secrets.GMAIL_PASSWORD }}
           secure: true
           subject: "Kubescape Report - ${{ github.repository }}"
-          body: "${{ steps.prepare-notification.outputs.notification_body }}"
+          body: "${{ steps.prepare-notification.outputs.report }}"
           from: ${{ secrets.GMAIL_USERNAME }}
           to: ${{ env.NOTIFICATION_RECIPIENTS }}
           attachments: |
@@ -126,5 +130,5 @@ jobs:
         if: always()
         run: |
           if [ -f ~/.kube/config ]; then
-            shred -u ~/.kube/config || rm -f ~/.kube/config
+            rm -f ~/.kube/config || echo "Cleanup failed but continuing"
           fi
