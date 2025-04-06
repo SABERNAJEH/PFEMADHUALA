@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main, master]
-#TESTTT
+#TESTTT6666
 env:
   CLUSTER_SCAN_OUTPUT: "cluster-scan-results.json"
   MINIKUBE_VERSION: "v1.32.0"
