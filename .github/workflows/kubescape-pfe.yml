@@ -29,7 +29,7 @@ jobs:
         run: |
           mkdir -p ~/.kube
           
-          # Essai de décodage base64 seulement si nécessaire
+          # Tentative de décodage base64 ou utilisation directe
           if echo "${{ secrets.KUBECONFIG }}" | grep -qE '^[A-Za-z0-9+/]+={0,2}$'; then
             echo "${{ secrets.KUBECONFIG }}" | base64 -d > ~/.kube/config || {
               echo "::warning::Failed to decode as base64, trying raw format"
@@ -41,9 +41,9 @@ jobs:
           
           chmod 600 ~/.kube/config
           
-          # Vérification améliorée du kubeconfig
+          # Vérification du kubeconfig
           if ! kubectl config view --raw >/dev/null 2>&1; then
-            echo "::error::Invalid kubeconfig format. Please check your secret."
+            echo "::error::Invalid kubeconfig format"
             echo "::group::Kubeconfig Content"
             cat ~/.kube/config
             echo "::endgroup::"
@@ -80,6 +80,22 @@ jobs:
             jq '.' "${{ env.CLUSTER_SCAN_OUTPUT }}" > temp.json && \
             mv temp.json "${{ env.CLUSTER_SCAN_OUTPUT }}"
 
+      - name: Prepare Notification Data
+        id: prepare-notification
+        run: |
+          if [ -n "${{ env.CLUSTER_NAME }}" ]; then
+            echo "cluster_status=${{ steps.cluster-scan.outcome }}" >> $GITHUB_ENV
+          else
+            echo "cluster_status=Not scanned" >> $GITHUB_ENV
+          fi
+          
+          echo "::set-output name=notification_body::Security Scan Results:
+            - YAML Files: ${{ steps.yaml-scan.outcome }}
+            - Cluster: ${{ env.cluster_status }}
+            - Cluster Name: ${{ env.CLUSTER_NAME || 'N/A' }}
+            - Timestamp: $(date)
+            Workflow: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
       - name: Upload Scan Results
         uses: actions/upload-artifact@v4
         with:
@@ -87,6 +103,7 @@ jobs:
           path: |
             ${{ env.YAML_SCAN_OUTPUT }}
             ${{ env.CLUSTER_SCAN_OUTPUT }}
+          retention-days: 7
 
       - name: Send Notification
         if: always()
@@ -97,14 +114,8 @@ jobs:
           username: ${{ secrets.GMAIL_USERNAME }}
           password: ${{ secrets.GMAIL_PASSWORD }}
           secure: true
-          subject: "Kubescape Report - ${{ env.CLUSTER_NAME || 'No Cluster' }} - ${{ github.repository }}"
-          body: |
-            Security Scan Results:
-            
-            - YAML Files: ${{ steps.yaml-scan.outcome }}
-            - Cluster: ${{ steps.cluster-scan.outcome if steps.cluster-scan else 'Not scanned' }}
-            
-            Workflow: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          subject: "Kubescape Report - ${{ github.repository }}"
+          body: "${{ steps.prepare-notification.outputs.notification_body }}"
           from: ${{ secrets.GMAIL_USERNAME }}
           to: ${{ env.NOTIFICATION_RECIPIENTS }}
           attachments: |
