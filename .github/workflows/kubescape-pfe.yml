@@ -21,7 +21,7 @@ jobs:
           echo "Installed Kubescape version:"
           $HOME/.kubescape/bin/kubescape version
 
-          # Add to PATH for current job
+          # Add to PATH for current job1111
           echo "$HOME/.kubescape/bin" >> $GITHUB_PATH
 
       - name: Run Kubescape scan
