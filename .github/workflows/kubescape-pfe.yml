@@ -1,3 +1,5 @@
+yaml
+Copy
 name: Kubescape Security Scan
 
 on:
@@ -28,10 +30,16 @@ jobs:
         id: setup-cluster
         run: |
           mkdir -p ~/.kube
-          echo "${{ secrets.KUBECONFIG }}" > ~/.kube/config
+          # Décodage du kubeconfig si encodé en base64
+          echo "${{ secrets.KUBECONFIG }}" | base64 -d > ~/.kube/config || echo "${{ secrets.KUBECONFIG }}" > ~/.kube/config
           chmod 600 ~/.kube/config
           
-          # Vérification explicite de la connexion
+          # Vérification du format du fichier
+          if ! kubectl config view --raw &> /dev/null; then
+            echo "::error::Invalid kubeconfig format"
+            exit 1
+          fi
+          
           export KUBECONFIG=~/.kube/config
           kubectl cluster-info
           echo "CLUSTER_NAME=$(kubectl config current-context)" >> $GITHUB_ENV
@@ -52,20 +60,15 @@ jobs:
         id: cluster-scan
         run: |
           export KUBECONFIG=~/.kube/config
-          
-          # Commande de scan avec timeout et vérification
           kubescape scan \
             --kubeconfig ~/.kube/config \
             --format json \
             --output ${{ env.CLUSTER_SCAN_OUTPUT }} \
             || echo "Cluster scan completed with exit code $?"
           
-          if [ -f "${{ env.CLUSTER_SCAN_OUTPUT }}" ]; then
-            jq '.' "${{ env.CLUSTER_SCAN_OUTPUT }}" > temp.json
+          [ -f "${{ env.CLUSTER_SCAN_OUTPUT }}" ] && \
+            jq '.' "${{ env.CLUSTER_SCAN_OUTPUT }}" > temp.json && \
             mv temp.json "${{ env.CLUSTER_SCAN_OUTPUT }}"
-          else
-            echo "No cluster scan results generated" > ${{ env.CLUSTER_SCAN_OUTPUT }}
-          fi
 
       - name: Upload Scan Results
         uses: actions/upload-artifact@v4
@@ -96,10 +99,9 @@ jobs:
           attachments: |
             ${{ env.YAML_SCAN_OUTPUT }}
             ${{ env.CLUSTER_SCAN_OUTPUT }}
-
-      - name: Cleanup
+     - name: Cleanup
         if: always()
         run: |
           if [ -f ~/.kube/config ]; then
-            rm -f ~/.kube/config || echo "Cleanup failed but continuing"
+            shred -u ~/.kube/config || rm -f ~/.kube/config
           fi
