@@ -2,9 +2,9 @@ name: Kubescape Security Scan
 
 on:
   push:
-    branches: [ master ]
+    branches: [master]
   pull_request:
-    branches: [ master ]
+    branches: [master]
 
 env:
   YAML_SCAN_OUTPUT: "yaml-scan-results.json"
@@ -22,7 +22,7 @@ jobs:
         run: |
           curl -s https://raw.githubusercontent.com/kubescape/kubescape/master/install.sh | /bin/bash
           echo "$HOME/.kubescape/bin" >> $GITHUB_PATH
-          kubescape version
+          $HOME/.kubescape/bin/kubescape version
 
       - name: Setup Kubernetes Access
         id: setup-kubeconfig
@@ -47,10 +47,6 @@ jobs:
             echo "::info::Trying base64 decode"
             echo "${{ secrets.KUBECONFIG }}" | base64 -d > ~/.kube/config.tmp 2> /dev/null || {
               echo "::error::❌ Invalid kubeconfig - neither valid YAML nor base64"
-              echo "::group::Kubeconfig Debug Info"
-              echo "First 100 chars: $(head -c 100 ~/.kube/config.tmp)"
-              echo "File size: $(wc -c < ~/.kube/config.tmp) bytes"
-              echo "::endgroup::"
               echo "kubeconfig_valid=false" >> $GITHUB_ENV
               exit 0
             }
@@ -80,7 +76,9 @@ jobs:
             --output ${{ env.YAML_SCAN_OUTPUT }} \
             || echo "YAML scan completed with exit code $?"
           
-          [ -f "${{ env.YAML_SCAN_OUTPUT }}" ] && jq '.' "${{ env.YAML_SCAN_OUTPUT }}"
+          [ -f "${{ env.YAML_SCAN_OUTPUT }}" ] && \
+            jq '.' "${{ env.YAML_SCAN_OUTPUT }}" > temp.json && \
+            mv temp.json "${{ env.YAML_SCAN_OUTPUT }}"
 
       - name: Scan Running Cluster
         if: env.kubeconfig_valid == 'true'
@@ -92,7 +90,25 @@ jobs:
             --output ${{ env.CLUSTER_SCAN_OUTPUT }} \
             || echo "Cluster scan completed with exit code $?"
           
-          [ -f "${{ env.CLUSTER_SCAN_OUTPUT }}" ] && jq '.' "${{ env.CLUSTER_SCAN_OUTPUT }}"
+          [ -f "${{ env.CLUSTER_SCAN_OUTPUT }}" ] && \
+            jq '.' "${{ env.CLUSTER_SCAN_OUTPUT }}" > temp.json && \
+            mv temp.json "${{ env.CLUSTER_SCAN_OUTPUT }}"
+
+      - name: Prepare Notification Data
+        id: prepare-notification
+        run: |
+          if [ "${{ env.kubeconfig_valid }}" = "true" ]; then
+            echo "cluster_status=${{ steps.cluster-scan.outcome }}" >> $GITHUB_ENV
+          else
+            echo "cluster_status=Not scanned (invalid kubeconfig)" >> $GITHUB_ENV
+          fi
+          
+          echo "::set-output name=report_content::Security Scan Results:
+            - Repository: ${{ github.repository }}
+            - Timestamp: $(date)
+            - YAML Files: ${{ steps.yaml-scan.outcome }}
+            - Cluster: ${{ env.cluster_status }}
+            - Workflow: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
       - name: Upload Results
         uses: actions/upload-artifact@v4
@@ -101,6 +117,7 @@ jobs:
           path: |
             ${{ env.YAML_SCAN_OUTPUT }}
             ${{ env.CLUSTER_SCAN_OUTPUT }}
+          retention-days: 3
 
       - name: Send Notification
         if: always()
@@ -112,13 +129,7 @@ jobs:
           password: ${{ secrets.GMAIL_PASSWORD }}
           secure: true
           subject: "Kubescape Report - ${{ github.repository }}"
-          body: |
-            Security Scan Results:
-            - Repository: ${{ github.repository }}
-            - Timestamp: $(date)
-            - YAML Scan: ${{ steps.yaml-scan.outcome }}
-            - Cluster Scan: ${{ steps.cluster-scan.outcome if env.kubeconfig_valid == 'true' else 'Not performed (invalid kubeconfig)' }}
-            - Workflow: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          body: "${{ steps.prepare-notification.outputs.report_content }}"
           from: ${{ secrets.GMAIL_USERNAME }}
           to: ${{ env.NOTIFICATION_RECIPIENTS }}
           attachments: |
