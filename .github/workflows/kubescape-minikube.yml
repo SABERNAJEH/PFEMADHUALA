@@ -76,6 +76,22 @@ jobs:
           name: security-scan-${{ github.run_id }}
           path: cluster-scan-results.json
           retention-days: 1
+      - name: Send Notification
+        if: always()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.GMAIL_USERNAME }}
+          password: ${{ secrets.GMAIL_PASSWORD }}
+          secure: true
+          subject: "Kubescape Report - ${{ github.repository }}"
+          body: file://${{ env.REPORT_FILE }}
+          from: ${{ secrets.GMAIL_USERNAME }}
+          to: ${{ env.NOTIFICATION_RECIPIENTS }}
+          attachments: |
+            ${{ env.CLUSTER_SCAN_OUTPUT }}
+            ${{ env.REPORT_FILE }}
 
       - name: Cleanup
         if: always()
