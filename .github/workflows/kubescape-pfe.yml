@@ -1,15 +1,16 @@
 name: Kubescape Security Scan
-#test
+
 on:
   push:
-    branches: [master]
+    branches: [ master ]
   pull_request:
-    branches: [master]
+    branches: [ master ]
 
 env:
   YAML_SCAN_OUTPUT: "yaml-scan-results.json"
   CLUSTER_SCAN_OUTPUT: "cluster-scan-results.json"
   NOTIFICATION_RECIPIENTS: "najah.wchem@etudiant-isi.utm.tn, saber.fraj@etudiant-isi.utm.tn"
+  KUBECONFIG_TIMEOUT: "10"  # Timeout en secondes pour la connexion au cluster
 
 jobs:
   security-scan:
@@ -29,44 +30,35 @@ jobs:
         run: |
           mkdir -p ~/.kube
           
-          # Vérifier si le secret existe
+          # Vérification du secret
           if [ -z "${{ secrets.KUBECONFIG }}" ]; then
-            echo "::warning::No KUBECONFIG secret found - skipping cluster scan"
-            echo "kubeconfig_valid=false" >> $GITHUB_ENV
+            echo "::warning::No KUBECONFIG secret found"
+            echo "cluster_available=false" >> $GITHUB_ENV
             exit 0
           fi
           
-          # Essayer d'abord comme texte brut
-          echo "${{ secrets.KUBECONFIG }}" > ~/.kube/config.tmp
+          # Écriture du kubeconfig
+          echo "${{ secrets.KUBECONFIG }}" > ~/.kube/config
+          chmod 600 ~/.kube/config
           
-          # Vérifier si c'est un YAML valide
-          if kubectl config view --kubeconfig ~/.kube/config.tmp --raw &> /dev/null; then
-            echo "::info::Valid raw YAML kubeconfig detected"
-            mv ~/.kube/config.tmp ~/.kube/config
-          else
-            echo "::info::Trying base64 decode"
-            echo "${{ secrets.KUBECONFIG }}" | base64 -d > ~/.kube/config.tmp 2> /dev/null || {
-              echo "::error::❌ Invalid kubeconfig - neither valid YAML nor base64"
-              echo "kubeconfig_valid=false" >> $GITHUB_ENV
-              exit 0
-            }
-            
-            # Valider le kubeconfig décodé
-            if kubectl config view --kubeconfig ~/.kube/config.tmp --raw &> /dev/null; then
-              mv ~/.kube/config.tmp ~/.kube/config
-              echo "::info::✅ Valid base64 encoded kubeconfig"
-            else
-              echo "::error::❌ Decoded kubeconfig is invalid"
-              echo "kubeconfig_valid=false" >> $GITHUB_ENV
-              exit 0
-            fi
+          # Validation basique du format
+          if ! kubectl config view --raw &> /dev/null; then
+            echo "::error::Invalid kubeconfig format"
+            echo "cluster_available=false" >> $GITHUB_ENV
+            exit 0
           fi
           
-          chmod 600 ~/.kube/config
-          echo "kubeconfig_valid=true" >> $GITHUB_ENV
+          # Test de connexion avec timeout
+          echo "Testing cluster connection with ${{ env.KUBECONFIG_TIMEOUT }}s timeout..."
           export KUBECONFIG=~/.kube/config
-          echo "CLUSTER_NAME=$(kubectl config current-context)" >> $GITHUB_ENV
-          kubectl cluster-info
+          if timeout ${{ env.KUBECONFIG_TIMEOUT }} kubectl cluster-info &> /dev/null; then
+            echo "::info::✅ Successfully connected to cluster"
+            echo "CLUSTER_NAME=$(kubectl config current-context)" >> $GITHUB_ENV
+            echo "cluster_available=true" >> $GITHUB_ENV
+          else
+            echo "::warning::⚠️ Could not connect to cluster (timeout after ${{ env.KUBECONFIG_TIMEOUT }}s)"
+            echo "cluster_available=false" >> $GITHUB_ENV
+          fi
 
       - name: Scan Kubernetes Manifests
         id: yaml-scan
@@ -81,9 +73,11 @@ jobs:
             mv temp.json "${{ env.YAML_SCAN_OUTPUT }}"
 
       - name: Scan Running Cluster
-        if: env.kubeconfig_valid == 'true'
+        if: env.cluster_available == 'true'
         id: cluster-scan
+        timeout-minutes: 5  # Timeout pour le scan complet
         run: |
+          export KUBECONFIG=~/.kube/config
           kubescape scan \
             --kubeconfig ~/.kube/config \
             --format json \
@@ -94,21 +88,21 @@ jobs:
             jq '.' "${{ env.CLUSTER_SCAN_OUTPUT }}" > temp.json && \
             mv temp.json "${{ env.CLUSTER_SCAN_OUTPUT }}"
 
-      - name: Prepare Notification Data
-        id: prepare-notification
+      - name: Prepare Report
+        id: prepare-report
         run: |
-          if [ "${{ env.kubeconfig_valid }}" = "true" ]; then
+          if [ "${{ env.cluster_available }}" = "true" ]; then
             echo "cluster_status=${{ steps.cluster-scan.outcome }}" >> $GITHUB_ENV
           else
-            echo "cluster_status=Not scanned (invalid kubeconfig)" >> $GITHUB_ENV
+            echo "cluster_status=Cluster unavailable (connection timeout)" >> $GITHUB_ENV
           fi
           
-          echo "::set-output name=report_content::Security Scan Results:
-            - Repository: ${{ github.repository }}
-            - Timestamp: $(date)
-            - YAML Files: ${{ steps.yaml-scan.outcome }}
-            - Cluster: ${{ env.cluster_status }}
-            - Workflow: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          echo "REPORT_CONTENT=Security Scan Report
+          - Repository: ${{ github.repository }}
+          - Timestamp: $(date)
+          - YAML Scan: ${{ steps.yaml-scan.outcome }}
+          - Cluster Status: ${{ env.cluster_status }}
+          - Workflow: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> $GITHUB_ENV
 
       - name: Upload Results
         uses: actions/upload-artifact@v4
@@ -117,7 +111,6 @@ jobs:
           path: |
             ${{ env.YAML_SCAN_OUTPUT }}
             ${{ env.CLUSTER_SCAN_OUTPUT }}
-          retention-days: 3
 
       - name: Send Notification
         if: always()
@@ -129,7 +122,7 @@ jobs:
           password: ${{ secrets.GMAIL_PASSWORD }}
           secure: true
           subject: "Kubescape Report - ${{ github.repository }}"
-          body: "${{ steps.prepare-notification.outputs.report_content }}"
+          body: "${{ env.REPORT_CONTENT }}"
           from: ${{ secrets.GMAIL_USERNAME }}
           to: ${{ env.NOTIFICATION_RECIPIENTS }}
           attachments: |
@@ -140,4 +133,3 @@ jobs:
         if: always()
         run: |
           [ -f ~/.kube/config ] && rm -f ~/.kube/config
-          [ -f ~/.kube/config.tmp ] && rm -f ~/.kube/config.tmp
