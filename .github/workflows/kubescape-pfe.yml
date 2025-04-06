@@ -65,7 +65,7 @@ jobs:
           [ -f "${{ env.CLUSTER_SCAN_OUTPUT }}" ] && \
             jq '.' "${{ env.CLUSTER_SCAN_OUTPUT }}" > temp.json && \
             mv temp.json "${{ env.CLUSTER_SCAN_OUTPUT }}"
-
+#test
       - name: Upload Scan Results
         uses: actions/upload-artifact@v4
         with:
