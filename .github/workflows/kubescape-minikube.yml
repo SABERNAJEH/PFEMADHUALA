@@ -1,0 +1,46 @@
+name: Kubescape Minikube Scan
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+
+jobs:
+  scan-minikube:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Start Minikube
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -qq -y conntrack
+          curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
+          sudo install minikube-linux-amd64 /usr/local/bin/minikube
+          minikube start --driver=docker --force
+          minikube status
+
+      - name: Install Kubescape
+        run: |
+          curl -s https://raw.githubusercontent.com/kubescape/kubescape/master/install.sh | /bin/bash
+          echo "$HOME/.kubescape/bin" >> $GITHUB_PATH
+          kubescape version
+
+      - name: Get Minikube kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          minikube kubectl -- config view --flatten > ~/.kube/config
+          kubectl cluster-info
+
+      - name: Scan Minikube Cluster
+        run: |
+          kubescape scan --submit --enable-host-scan \
+            --format json \
+            --output cluster-scan-results.json
+          
+          # Optional: Print summary
+          kubescape scan --submit --enable-host-scan --format pretty-print
+
+      - name: Upload Results
+        uses: actions/upload-artifact@v3
+        with:
+          name: kubescape-results
+          path: cluster-scan-results.json
