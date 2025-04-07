@@ -1,9 +1,26 @@
-steps:
-  - uses: actions/checkout@v4
-    with:
-      path: 'repo-root'  # Doit correspondre au chemin utilisé
+name: Security Pipeline
 
-  - name: Setup Cluster
-    uses: ./.github/workflows/modules/cluster  # Chemin relatif direct
-    with:
-      cluster_name: ${{ env.CLUSTER_NAME }}
+on: [push, workflow_dispatch]
+
+jobs:
+  security-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: 'main-repo'  # Nom crucial
+
+      - name: Setup Cluster
+        uses: ./main-repo/.github/workflows/modules/cluster
+        with:
+          cluster_name: 'security-cluster'
+
+      - name: Run Security Scans
+        uses: ./main-repo/.github/workflows/modules/scanning
+        with:
+          target: "."
+          output_dir: "./security-reports"
+
+      - name: Send Notification
+        uses: ./main-repo/.github/workflows/modules/notification
+        if: always()
