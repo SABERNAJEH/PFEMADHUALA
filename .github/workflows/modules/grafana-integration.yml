@@ -1,0 +1,19 @@
+name: Grafana Integration
+
+runs:
+  using: "composite"
+  steps:
+    - name: Deploy Monitoring Stack
+      shell: bash
+      run: |
+        helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+        helm install monitoring prometheus-community/kube-prometheus-stack \
+          --set grafana.adminPassword='admin' \
+          --set grafana.service.type=NodePort
+          
+    - name: Expose Grafana
+      shell: bash
+      run: |
+        kubectl patch svc monitoring-grafana \
+          -p '{"spec": {"type": "NodePort"}}'
+        echo "GRAFANA_URL=http://$(minikube ip):$(kubectl get svc monitoring-grafana -o jsonpath='{.spec.ports[0].nodePort}')" >> $GITHUB_ENV
