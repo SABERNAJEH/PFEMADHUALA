@@ -1,4 +1,4 @@
-name: Kubernetes Security Scan with Goat Deployment and Grafana
+name: Kubernetes Security Scan with Goat Deployment and Grafana Dashboard
 
 on:
   workflow_dispatch:
@@ -72,12 +72,13 @@ jobs:
             --create-namespace \
             --set grafana.adminPassword="admin" \
             --set prometheus.service.nodePort=30090 \
-            --set grafana.service.type=NodePort
+            --set grafana.service.type=NodePort \
+            --wait
 
       - name: Deploy Kubernetes Goat
         run: |
           git clone --depth 1 --branch ${{ env.KUBERNETES_GOAT_VERSION }} \
-            https://github.com/SABERNAJEH/PFEMADHUALA.git /tmp/kubernetes-goat
+            https://github.com/madhuakula/kubernetes-goat.git /tmp/kubernetes-goat
           
           cd /tmp/kubernetes-goat
           bash setup-kubernetes-goat.sh -y
@@ -93,37 +94,77 @@ jobs:
 
       - name: Run comprehensive security scan
         run: |
+          # Run scan with error handling
+          set +e
           $HOME/.kubescape/bin/kubescape scan \
             --enable-host-scan \
             --format json \
             --verbose \
-            --output ${{ env.CLUSTER_SCAN_OUTPUT }} \
-            || echo "Scan completed with exit code $?"
+            --output ${{ env.CLUSTER_SCAN_OUTPUT }}
+          SCAN_EXIT_CODE=$?
+          set -e
           
-          [ -f "${{ env.CLUSTER_SCAN_OUTPUT }}" ] && \
-            jq '.' "${{ env.CLUSTER_SCAN_OUTPUT }}" > temp.json && \
-            mv temp.json "${{ env.CLUSTER_SCAN_OUTPUT }}"
+          echo "Scan completed with exit code $SCAN_EXIT_CODE"
           
-          # Convert scan results to Prometheus metrics
-          python3 <<EOF
-          import json, os
-          with open(os.getenv('CLUSTER_SCAN_OUTPUT')) as f:
-              data = json.load(f)
-          
-          metrics = []
-          for control in data['controls']:
-              metrics.append(f'kubescape_control_status{{id="{control["controlID"]}",name="{control["name"]}"}} {1 if control["status"] == "passed" else 0}')
-          
-          with open(os.getenv('PROMETHEUS_FILE'), 'w') as f:
-              f.write('\n'.join(metrics))
-          EOF
-          
-          CRITICAL_FINDINGS=$(jq '.summary_details.numberOfCriticalSeverity' "${{ env.CLUSTER_SCAN_OUTPUT }}")
-          echo "CRITICAL_FINDINGS=$CRITICAL_FINDINGS" >> $GITHUB_ENV
+          # Process scan results
+          if [ -f "${{ env.CLUSTER_SCAN_OUTPUT }}" ]; then
+            # Format JSON output
+            jq '.' "${{ env.CLUSTER_SCAN_OUTPUT }}" > temp.json && mv temp.json "${{ env.CLUSTER_SCAN_OUTPUT }}"
+            
+            # Debug output structure
+            echo "Scan output structure:"
+            jq 'keys' "${{ env.CLUSTER_SCAN_OUTPUT }}"
+            
+            # Convert to Prometheus metrics
+            python3 <<EOF
+            import json, os
+            from pathlib import Path
+            
+            def process_results(data):
+                metrics = []
+                if 'results' in data:  # New format
+                    for result in data['results']:
+                        for control in result.get('controls', []):
+                            metrics.append(format_metric(control))
+                elif 'controls' in data:  # Old format
+                    for control in data['controls']:
+                        metrics.append(format_metric(control))
+                return metrics
+            
+            def format_metric(control):
+                control_id = control.get("controlID", "unknown").replace('"', '\\"')
+                name = control.get("name", "unknown").replace('"', '\\"')
+                status = 1 if control.get("status") == "passed" else 0
+                return f'kubescape_control_status{{id="{control_id}",name="{name}"}} {status}'
+            
+            try:
+                with open(os.getenv('CLUSTER_SCAN_OUTPUT')) as f:
+                    data = json.load(f)
+                
+                metrics = process_results(data)
+                
+                if not metrics:
+                    raise ValueError("No valid control data found in scan results")
+                
+                Path(os.getenv('PROMETHEUS_FILE')).write_text('\n'.join(metrics))
+                print(f"Successfully generated {len(metrics)} metrics")
+                
+            except Exception as e:
+                print(f"Error processing scan results: {str(e)}")
+                exit(1)
+            EOF
+            
+            # Extract critical findings
+            CRITICAL_FINDINGS=$(jq '[.summary_details.numberOfCriticalSeverity, .summary."numberOfCriticalSeverity"] | map(select(. != null)) | first // 0' "${{ env.CLUSTER_SCAN_OUTPUT }}")
+            echo "CRITICAL_FINDINGS=$CRITICAL_FINDINGS" >> $GITHUB_ENV
+          else
+            echo "Error: Scan output file not found!"
+            exit 1
+          fi
 
       - name: Push metrics to Prometheus
         run: |
-          # Expose Prometheus pushgateway
+          # Deploy Pushgateway
           kubectl apply -f - <<EOF
           apiVersion: apps/v1
           kind: Deployment
@@ -164,30 +205,43 @@ jobs:
           kubectl wait --for=condition=available -n monitoring deployment/pushgateway --timeout=2m
           
           # Push metrics
+          PUSHGATEWAY_URL="http://$(minikube ip):$(kubectl get svc -n monitoring pushgateway -o jsonpath='{.spec.ports[0].nodePort}')"
           curl -X POST -H "Content-Type: text/plain" \
             --data-binary @${{ env.PROMETHEUS_FILE }} \
-            http://$(minikube ip):$(kubectl get svc -n monitoring pushgateway -o jsonpath='{.spec.ports[0].nodePort}')/metrics/job/kubescape_scan
+            "$PUSHGATEWAY_URL/metrics/job/kubescape_scan" || echo "Warning: Failed to push metrics"
 
       - name: Configure Grafana Dashboard
         run: |
-          # Create dashboard configuration
+          # Create comprehensive dashboard
           cat > ${{ env.GRAFANA_DASHBOARD_FILE }} <<EOF
           {
             "dashboard": {
-              "title": "Kubescape Security Report",
+              "title": "Kubescape Security Dashboard",
               "panels": [
                 {
-                  "title": "Controls Status Overview",
-                  "type": "stat",
+                  "title": "Compliance Score",
+                  "type": "gauge",
+                  "gridPos": {"x": 0, "y": 0, "w": 8, "h": 6},
                   "targets": [{
-                    "expr": "sum(kubescape_control_status) by (name)"
+                    "expr": "avg(kubescape_control_status) * 100",
+                    "format": "percent"
                   }]
                 },
                 {
-                  "title": "Critical Findings",
-                  "type": "gauge",
+                  "title": "Controls by Severity",
+                  "type": "piechart",
+                  "gridPos": {"x": 8, "y": 0, "w": 8, "h": 6},
                   "targets": [{
-                    "expr": "${{ env.CRITICAL_FINDINGS }}"
+                    "expr": "count by (severity) (kubescape_control_status)"
+                  }]
+                },
+                {
+                  "title": "Failed Controls",
+                  "type": "table",
+                  "gridPos": {"x": 0, "y": 6, "w": 16, "h": 8},
+                  "targets": [{
+                    "expr": "kubescape_control_status == 0",
+                    "format": "table"
                   }]
                 }
               ]
@@ -195,28 +249,29 @@ jobs:
           }
           EOF
           
-          # Get Grafana credentials
+          # Get Grafana access details
           GRAFANA_URL="http://$(minikube ip):$(kubectl get svc -n monitoring monitoring-grafana -o jsonpath='{.spec.ports[0].nodePort}')"
           
-          # Wait for Grafana to be ready
+          # Wait for Grafana
           until curl -s $GRAFANA_URL; do sleep 1; done
           
           # Import dashboard
           curl -X POST -H "Content-Type: application/json" \
             -d @${{ env.GRAFANA_DASHBOARD_FILE }} \
             "$GRAFANA_URL/api/dashboards/db" \
-            -u admin:admin
+            -u admin:admin || echo "Warning: Failed to import dashboard"
 
-      - name: Upload scan results
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: security-scan-${{ github.run_id }}
           path: |
             ${{ env.CLUSTER_SCAN_OUTPUT }}
             ${{ env.PROMETHEUS_FILE }}
+            ${{ env.GRAFANA_DASHBOARD_FILE }}
           retention-days: 3
 
-      - name: Send notification with Grafana link
+      - name: Send notification
         if: always()
         uses: dawidd6/action-send-mail@v3
         with:
@@ -225,29 +280,25 @@ jobs:
           username: ${{ secrets.GMAIL_USERNAME }}
           password: ${{ secrets.GMAIL_PASSWORD }}
           secure: true
-          subject: "Kubernetes Security Scan Report - ${{ github.repository }}"
+          subject: "Kubernetes Security Scan Completed - ${{ github.repository }}"
           body: |
-            Kubernetes security scan completed with results:
+            Security scan results:
             
             - Critical Findings: ${{ env.CRITICAL_FINDINGS || 'N/A' }}
-            - Grafana Dashboard: http://$(minikube ip):$(kubectl get svc -n monitoring monitoring-grafana -o jsonpath='{.spec.ports[0].nodePort}')
-            - Scan details attached
+            - Grafana Dashboard: http://$(minikube ip):$(kubectl get svc -n monitoring monitoring-grafana -o jsonpath='{.spec.ports[0].nodePort'})
+            - Credentials: admin/admin
             
-            Access credentials:
-            - Username: admin
-            - Password: admin
+            Full report attached.
           from: ${{ secrets.GMAIL_USERNAME }}
           to: ${{ env.NOTIFICATION_RECIPIENTS }}
           attachments: ${{ env.CLUSTER_SCAN_OUTPUT }}
 
-      - name: Cleanup Kubernetes Goat
+      - name: Cleanup resources
         if: always()
         run: |
-          cd /tmp/kubernetes-goat && \
-          bash reset-kubernetes-goat.sh || true
-
-      - name: Cleanup Minikube cluster
-        if: always()
-        run: |
+          # Reset Kubernetes Goat
+          cd /tmp/kubernetes-goat && bash reset-kubernetes-goat.sh || true
+          
+          # Full cleanup
           minikube delete --all --purge
           sudo rm -rf ~/.minikube ~/.kube /tmp/kubernetes-goat
