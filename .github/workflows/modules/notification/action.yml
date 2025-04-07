@@ -1,16 +1,7 @@
-name: 'Security Notifier'
-
-inputs:
-  recipients:
-    description: 'Comma-separated email list'
-    required: true
-  report_dir:
-    description: 'Directory containing scan reports'
-    default: './reports'
-
+name: 'Alert Notifier'
 runs:
   using: "composite"
   steps:
-    - name: Prepare Report
+    - run: ${{ github.action_path }}/scripts/send-report.sh
       shell: bash
-      run: ./${{ github.action_path }}/scripts/send-report.sh ${{ inputs.recipients }} ${{ inputs.report_dir }}
+      name: Send Report
