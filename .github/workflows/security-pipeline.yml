@@ -5,39 +5,26 @@ on:
   push:
     branches: [main, master]
 
-env:
-  CLUSTER_SCAN_OUTPUT: "cluster-scan-results.json"
-  MINIKUBE_VERSION: "v1.32.0"
-  KUBESCAPE_VERSION: "v3.0.10"
-#test
 jobs:
   security-scan:
     runs-on: ubuntu-22.04
     timeout-minutes: 30
-    needs: []
 
     steps:
-      - name: Checkout
+      - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          path: 'main-repo'  # Nécessaire pour les actions locales
 
       - name: Setup Cluster
-        uses: ./.github/workflows/modules/cluster-setup.yml
+        uses: ./.github/workflows/actions/cluster-setup
         with:
-          minikube_version: ${{ env.MINIKUBE_VERSION }}
+          minikube_version: 'v1.32.0'
 
       - name: Deploy Kubernetes Goat
-        uses: ./.github/workflows/modules/kubernetes-goat.yml
+        uses: ./.github/workflows/actions/kubernetes-goat
 
       - name: Run Security Scan
-        uses: ./.github/workflows/modules/kubescape-scan.yml
+        uses: ./.github/workflows/actions/kubescape-scan
         with:
-          scan_output: ${{ env.CLUSTER_SCAN_OUTPUT }}
-          kubescape_version: ${{ env.KUBESCAPE_VERSION }}
-
-      - name: Visualize in Grafana
-        uses: ./.github/workflows/modules/grafana-integration.yml
-        if: always()
-
-      - name: Send Notification
-        uses: ./.github/workflows/modules/notification.yml
-        if: always()
+          scan_output: 'cluster-scan-results.json'
