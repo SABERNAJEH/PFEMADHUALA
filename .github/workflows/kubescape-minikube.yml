@@ -1,4 +1,4 @@
-name: Optimized Kubescape Minikube Scan
+name: Kubernetes Security Scan with Goat Deployment
 
 on:
   workflow_dispatch:
@@ -9,14 +9,14 @@ env:
   CLUSTER_SCAN_OUTPUT: "cluster-scan-results.json"
   MINIKUBE_VERSION: "v1.32.0"
   KUBESCAPE_VERSION: "v3.0.10"
-  MINIKUBE_WAIT_TIMEOUT: "3m"
-  NOTIFICATION_RECIPIENTS: "najah.wchem@etudiant-isi.utm.tn, saber.fraj@etudiant-isi.utm.tn"
+  KUBERNETES_GOAT_VERSION: "master"
+  MINIKUBE_WAIT_TIMEOUT: "5m"
+  NOTIFICATION_RECIPIENTS: "najah.wchem@etudiant-isi.utm.tn,saber.fraj@etudiant-isi.utm.tn"
 
 jobs:
-  scan-minikube:
+  security-scan:
     runs-on: ubuntu-22.04
-    timeout-minutes: 15
-
+    timeout-minutes: 25
     steps:
       - name: Cache dependencies
         uses: actions/cache@v4
@@ -24,22 +24,28 @@ jobs:
           path: |
             ~/.minikube/cache
             ~/.kubescape
-          key: ${{ runner.os }}-k8s-${{ env.MINIKUBE_VERSION }}-${{ env.KUBESCAPE_VERSION }}
+            /tmp/kubernetes-goat
+          key: ${{ runner.os }}-k8s-${{ env.MINIKUBE_VERSION }}-${{ env.KUBESCAPE_VERSION }}-${{ env.KUBERNETES_GOAT_VERSION }}
 
-      - name: Configure system (optimized)
+      - name: Configure system
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -qq -y --no-install-recommends conntrack socat curl
+          sudo apt-get install -qq -y --no-install-recommends \
+            conntrack socat curl jq git
           sudo swapoff -a 2>/dev/null || true
 
-      - name: Install Minikube
+      - name: Install Minikube and dependencies
         run: |
           curl -Lo minikube https://storage.googleapis.com/minikube/releases/${{ env.MINIKUBE_VERSION }}/minikube-linux-amd64
           chmod +x minikube
           sudo install minikube /usr/local/bin/minikube
           minikube version
+          
+          # Install kubectl
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          sudo install kubectl /usr/local/bin/kubectl
 
-      - name: Start Minikube cluster
+      - name: Start Minikube cluster with extra resources
         run: |
           minikube start \
             --driver=docker \
@@ -47,8 +53,24 @@ jobs:
             --kubernetes-version=stable \
             --wait=all \
             --wait-timeout=${{ env.MINIKUBE_WAIT_TIMEOUT }} \
-            --memory=4096 \
-            --cpus=2
+            --memory=6144 \
+            --cpus=4 \
+            --disk-size=20g \
+            --addons=metrics-server \
+            --delete-on-failure
+          
+          kubectl cluster-info
+
+      - name: Deploy Kubernetes Goat
+        run: |
+          git clone --depth 1 --branch ${{ env.KUBERNETES_GOAT_VERSION }} \
+            https://github.com/SABERNAJEH/PFEMADHUALA.git /tmp/kubernetes-goat
+          
+          cd /tmp/kubernetes-goat
+          bash setup-kubernetes-goat.sh -y
+          
+          echo "Kubernetes Goat scenarios deployed:"
+          kubectl get pods --all-namespaces
 
       - name: Install Kubescape
         run: |
@@ -56,26 +78,33 @@ jobs:
           echo "$HOME/.kubescape/bin" >> $GITHUB_PATH
           $HOME/.kubescape/bin/kubescape version
 
-      - name: Run Kubescape scan
+      - name: Run comprehensive security scan
         run: |
+          # Scan the entire cluster including Kubernetes Goat deployments
           $HOME/.kubescape/bin/kubescape scan \
             --enable-host-scan \
             --format json \
+            --verbose \
             --output ${{ env.CLUSTER_SCAN_OUTPUT }} \
-            || echo "cluster scan completed with exit code $?"
-            [ -f "${{ env.CLUSTER_SCAN_OUTPUT }}" ] && \
-            jq '.' "${{ env.CLUSTER_SCAN_OUTPUT }}" > temp1.json && \
-            mv temp1.json "${{ env.CLUSTER_SCAN_OUTPUT }}"
-           # --exclude-namespaces kube-system,kubernetes-dashboard
+            || echo "Scan completed with exit code $?"
+          
+          # Format JSON output for readability
+          [ -f "${{ env.CLUSTER_SCAN_OUTPUT }}" ] && \
+            jq '.' "${{ env.CLUSTER_SCAN_OUTPUT }}" > temp.json && \
+            mv temp.json "${{ env.CLUSTER_SCAN_OUTPUT }}"
+          
+          # Extract critical findings count
+          CRITICAL_FINDINGS=$(jq '.summary_details.numberOfCriticalSeverity' "${{ env.CLUSTER_SCAN_OUTPUT }}")
+          echo "CRITICAL_FINDINGS=$CRITICAL_FINDINGS" >> $GITHUB_ENV
 
-      - name: Upload results
+      - name: Upload scan results
         uses: actions/upload-artifact@v4
         with:
           name: security-scan-${{ github.run_id }}
           path: ${{ env.CLUSTER_SCAN_OUTPUT }}
-          retention-days: 1
+          retention-days: 3
 
-      - name: Send Notification
+      - name: Send notification with scan summary
         if: always()
         uses: dawidd6/action-send-mail@v3
         with:
@@ -84,14 +113,29 @@ jobs:
           username: ${{ secrets.GMAIL_USERNAME }}
           password: ${{ secrets.GMAIL_PASSWORD }}
           secure: true
-          subject: "Kubescape Report - ${{ github.repository }}"
-          body: "Kubescape scan completed. Please find attached the scan results."
+          subject: "Kubernetes Security Scan Report - ${{ github.repository }}"
+          body: |
+            Kubernetes security scan completed with results:
+            
+            - Cluster: Minikube with Kubernetes Goat
+            - Critical Findings: ${{ env.CRITICAL_FINDINGS || 'N/A' }}
+            - Full report attached
+            
+            Scan details:
+            - Kubescape version: ${{ env.KUBESCAPE_VERSION }}
+            - Timestamp: $(date -u)
           from: ${{ secrets.GMAIL_USERNAME }}
-          to: ${{ env.NOTIFICATION_RECIPIENTS }}  # Utilisation de la variable d'environnement
+          to: ${{ env.NOTIFICATION_RECIPIENTS }}
           attachments: ${{ env.CLUSTER_SCAN_OUTPUT }}
 
-      - name: Cleanup
+      - name: Cleanup Kubernetes Goat
         if: always()
         run: |
-          minikube delete --purge
-          sudo rm -rf ~/.minikube ~/.kube
+          cd /tmp/kubernetes-goat && \
+          bash reset-kubernetes-goat.sh || true
+
+      - name: Cleanup Minikube cluster
+        if: always()
+        run: |
+          minikube delete --all --purge
+          sudo rm -rf ~/.minikube ~/.kube /tmp/kubernetes-goat
