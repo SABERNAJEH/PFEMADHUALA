@@ -1,4 +1,4 @@
-name: Kubernetes Security Scan with Grafana Access
+name: Kubernetes Security Scan with Grafana Integration
 
 on:
   workflow_dispatch:
@@ -7,10 +7,11 @@ on:
 
 env:
   CLUSTER_SCAN_OUTPUT: "cluster-scan-results.json"
-  GRAFANA_ADMIN_PASSWORD: "Admin@Secure123"
+  GRAFANA_ADMIN_PASSWORD: "admin@123"
+  GRAFANA_DASHBOARD_ID: "18665"
   MINIKUBE_VERSION: "v1.32.0"
   KUBESCAPE_VERSION: "v3.0.10"
-  GRAFANA_NODE_PORT: "30000"
+  KICBASE_IMAGE: "gcr.io/k8s-minikube/kicbase:v0.0.40"  # Version fixe pour la stabilité
 
 jobs:
   security-scan:
@@ -18,103 +19,131 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - name: Install Kubescape (first step)
-        run: |
-          # Install Kubescape before anything else
-          curl -s https://raw.githubusercontent.com/kubescape/kubescape/master/install.sh | /bin/bash
-          echo "$HOME/.kubescape/bin" >> $GITHUB_PATH
-          echo "PATH=$PATH:$HOME/.kubescape/bin" >> $GITHUB_ENV
-          kubescape version
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Verify Kubescape installation
+      - name: Preload Minikube image
         run: |
-          which kubescape
-          kubescape version
+          docker pull ${{ env.KICBASE_IMAGE }}
+          docker save ${{ env.KICBASE_IMAGE }} -o kicbase.tar
+          sudo mkdir -p /var/tmp/minikube/cache/images/
+          sudo mv kicbase.tar /var/tmp/minikube/cache/images/
 
-      - name: Configure system
+      - name: Start Minikube with Monitoring Stack
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends \
-            ca-certificates \
-            curl \
-            conntrack \
-            socat \
-            jq
-
-      - name: Install Minikube
-        run: |
+          # Install Minikube
           curl -Lo minikube https://storage.googleapis.com/minikube/releases/${{ env.MINIKUBE_VERSION }}/minikube-linux-amd64
           chmod +x minikube
           sudo install minikube /usr/local/bin/minikube
-          minikube version
 
-      - name: Start Minikube cluster
-        run: |
+          # Start cluster with preloaded image
           minikube start \
             --driver=docker \
+            --container-runtime=containerd \
+            --base-image="${{ env.KICBASE_IMAGE }}" \
             --memory=8192 \
             --cpus=4 \
             --addons=metrics-server \
             --wait=all
 
-      - name: Run Kubescape scan
+          # Install monitoring stack
+          helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+          helm repo update
+          helm install monitoring prometheus-community/kube-prometheus-stack \
+            --namespace monitoring \
+            --create-namespace \
+            --set grafana.adminPassword="${{ env.GRAFANA_ADMIN_PASSWORD }}" \
+            --set grafana.service.type=NodePort \
+            --wait
+
+          # Expose Grafana
+          kubectl patch svc monitoring-grafana -n monitoring \
+            --type='json' \
+            -p='[{"op": "replace", "path": "/spec/type", "value": "NodePort"}]'
+
+          # Wait for Grafana
+          kubectl wait --for=condition=available deployment/monitoring-grafana -n monitoring --timeout=2m
+
+          # Save access information
+          echo "GRAFANA_URL=http://$(minikube ip):$(kubectl get svc monitoring-grafana -n monitoring -o jsonpath='{.spec.ports[0].nodePort}')" >> $GITHUB_ENV
+          echo "GRAFANA_CREDS=admin:${{ env.GRAFANA_ADMIN_PASSWORD }}" >> $GITHUB_ENV
+
+      - name: Install Kubescape
+        run: |
+          curl -s https://raw.githubusercontent.com/kubescape/kubescape/master/install.sh | /bin/bash
+          echo "$HOME/.kubescape/bin" >> $GITHUB_PATH
+          kubescape version
+
+      - name: Run security scan
         run: |
           kubescape scan \
             --enable-host-scan \
             --format json \
             --output ${{ env.CLUSTER_SCAN_OUTPUT }} \
-            --verbose \
-            --fail-threshold 100 \
-            || echo "Scan completed with exit code $?"
+            --exclude-namespaces kube-system,monitoring
 
-          # Verify scan output
-          if [ -f "${{ env.CLUSTER_SCAN_OUTPUT }}" ]; then
-            echo "Scan results saved successfully"
-            jq '.' "${{ env.CLUSTER_SCAN_OUTPUT }}" > formatted.json
-            mv formatted.json "${{ env.CLUSTER_SCAN_OUTPUT }}"
-          else
-            echo "Error: Scan output file not found!"
-            exit 1
-          fi
+          # Convert to Prometheus metrics
+          jq -r '.controls[] | "kubescape_control_status{id=\"\(.controlID)\",name=\"\(.name)\"} \(if .status == "passed" then 1 else 0 end)"' \
+            ${{ env.CLUSTER_SCAN_OUTPUT }} > metrics.prom
 
-      - name: Install Helm
+      - name: Push metrics to Prometheus
         run: |
-          curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-          helm version
+          # Install Pushgateway
+          helm install pushgateway prometheus-community/prometheus-pushgateway \
+            --namespace monitoring \
+            --set service.type=NodePort
 
-      - name: Install Grafana
+          # Wait for Pushgateway
+          kubectl wait --for=condition=available deployment/pushgateway -n monitoring --timeout=2m
+
+          # Push metrics
+          curl -X POST \
+            --data-binary @metrics.prom \
+            "http://$(minikube ip):$(kubectl get svc pushgateway -n monitoring -o jsonpath='{.spec.ports[0].nodePort}')/metrics/job/kubescape"
+
+      - name: Configure Grafana Dashboard
         run: |
-          helm repo add grafana https://grafana.github.io/helm-charts
-          helm repo update
-          kubectl create namespace grafana || true
+          # Import official Kubescape dashboard
+          curl -X POST \
+            -H "Content-Type: application/json" \
+            -d '{"dashboard": {"id": null, "uid": null, "title": "Kubescape Security Dashboard"}, "overwrite": true}' \
+            "$GRAFANA_URL/api/dashboards/import/${{ env.GRAFANA_DASHBOARD_ID }}" \
+            -u $GRAFANA_CREDS
+
+          # Configure Prometheus datasource if not exists
+          curl -X POST \
+            -H "Content-Type: application/json" \
+            -d '{"name":"Prometheus","type":"prometheus","url":"http://monitoring-prometheus-oper-prometheus.monitoring.svc:9090","access":"proxy"}' \
+            "$GRAFANA_URL/api/datasources" \
+            -u $GRAFANA_CREDS || echo "Datasource may already exist"
+
+      - name: Share access information
+        run: |
+          # Create access file
+          cat > grafana-access.txt <<EOF
+          === Grafana Access ===
+          URL: $GRAFANA_URL
+          Username: admin
+          Password: ${{ env.GRAFANA_ADMIN_PASSWORD }}
           
-          helm upgrade --install grafana grafana/grafana \
-            --namespace grafana \
-            --set persistence.enabled=true \
-            --set adminPassword="${{ env.GRAFANA_ADMIN_PASSWORD }}" \
-            --set service.type=NodePort \
-            --set service.nodePort=${{ env.GRAFANA_NODE_PORT }} \
-            --wait
+          === Prometheus Pushgateway ===
+          URL: http://$(minikube ip):$(kubectl get svc pushgateway -n monitoring -o jsonpath='{.spec.ports[0].nodePort}')
+          EOF
 
-          MINIKUBE_IP=$(minikube ip)
-          echo "GRAFANA_URL=http://$MINIKUBE_IP:${{ env.GRAFANA_NODE_PORT }}" >> $GITHUB_ENV
-
-      - name: Expose Grafana
-        run: |
-          echo "=============================================="
-          echo "GRAFANA ACCESS INSTRUCTIONS"
-          echo "1. Direct URL: $GRAFANA_URL"
-          echo "2. Local port-forward: http://localhost:3000"
-          echo "Username: admin"
-          echo "Password: ${{ env.GRAFANA_ADMIN_PASSWORD }}"
-          echo "=============================================="
-          
-          nohup kubectl port-forward -n grafana svc/grafana 3000:3000 > /dev/null 2>&1 &
-          sleep 300  # Keep alive for 5 minutes
+          # Print access info
+          cat grafana-access.txt
 
       - name: Upload results
         uses: actions/upload-artifact@v4
         with:
           name: security-scan-results
-          path: ${{ env.CLUSTER_SCAN_OUTPUT }}
-          retention-days: 3
+          path: |
+            ${{ env.CLUSTER_SCAN_OUTPUT }}
+            grafana-access.txt
+          retention-days: 7
+
+      - name: Cleanup
+        if: always()
+        run: |
+          minikube delete --purge
+          sudo rm -rf ~/.minikube ~/.kube
