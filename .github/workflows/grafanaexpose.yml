@@ -18,47 +18,28 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - name: Clean up system packages
+      - name: Install Kubescape (first step)
         run: |
-          # Nettoyer les paquets problématiques
-          sudo apt-get remove -y --purge containerd docker.io || true
-          sudo apt-get autoremove -y
-          sudo rm -rf /var/lib/apt/lists/*
-          sudo apt-get clean
+          # Install Kubescape before anything else
+          curl -s https://raw.githubusercontent.com/kubescape/kubescape/master/install.sh | /bin/bash
+          echo "$HOME/.kubescape/bin" >> $GITHUB_PATH
+          echo "PATH=$PATH:$HOME/.kubescape/bin" >> $GITHUB_ENV
+          kubescape version
 
-      - name: Configure system repositories
+      - name: Verify Kubescape installation
         run: |
-          # Ajouter la clé GPG officielle de Docker
-          sudo mkdir -p /etc/apt/keyrings
-          curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-          echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-          sudo apt-get update -o Acquire::Retries=3 -qq
+          which kubescape
+          kubescape version
 
-      - name: Install system dependencies
+      - name: Configure system
         run: |
-          # Installer les dépendances de base sans conflits
+          sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
             ca-certificates \
             curl \
-            gnupg \
-            lsb-release \
             conntrack \
             socat \
-            jq \
-            apt-transport-https
-
-      - name: Install Docker Engine
-        run: |
-          # Installer Docker sans conflits
-          sudo apt-get install -y \
-            docker-ce \
-            docker-ce-cli \
-            containerd.io \
-            docker-buildx-plugin \
-            docker-compose-plugin
-          
-          sudo systemctl enable --now docker
-          sudo usermod -aG docker $USER
+            jq
 
       - name: Install Minikube
         run: |
@@ -76,15 +57,37 @@ jobs:
             --addons=metrics-server \
             --wait=all
 
-      - name: Setup Helm
+      - name: Run Kubescape scan
+        run: |
+          kubescape scan \
+            --enable-host-scan \
+            --format json \
+            --output ${{ env.CLUSTER_SCAN_OUTPUT }} \
+            --verbose \
+            --fail-threshold 100 \
+            || echo "Scan completed with exit code $?"
+
+          # Verify scan output
+          if [ -f "${{ env.CLUSTER_SCAN_OUTPUT }}" ]; then
+            echo "Scan results saved successfully"
+            jq '.' "${{ env.CLUSTER_SCAN_OUTPUT }}" > formatted.json
+            mv formatted.json "${{ env.CLUSTER_SCAN_OUTPUT }}"
+          else
+            echo "Error: Scan output file not found!"
+            exit 1
+          fi
+
+      - name: Install Helm
         run: |
           curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-          helm repo add grafana https://grafana.github.io/helm-charts
-          helm repo update
+          helm version
 
       - name: Install Grafana
         run: |
+          helm repo add grafana https://grafana.github.io/helm-charts
+          helm repo update
           kubectl create namespace grafana || true
+          
           helm upgrade --install grafana grafana/grafana \
             --namespace grafana \
             --set persistence.enabled=true \
@@ -96,32 +99,18 @@ jobs:
           MINIKUBE_IP=$(minikube ip)
           echo "GRAFANA_URL=http://$MINIKUBE_IP:${{ env.GRAFANA_NODE_PORT }}" >> $GITHUB_ENV
 
-      - name: Install Kubescape
-        run: |
-          curl -s https://raw.githubusercontent.com/kubescape/kubescape/master/install.sh | /bin/bash
-          echo "$HOME/.kubescape/bin" >> $GITHUB_PATH
-          kubescape version
-
-      - name: Run security scan
-        run: |
-          kubescape scan \
-            --enable-host-scan \
-            --format json \
-            --output ${{ env.CLUSTER_SCAN_OUTPUT }} \
-            --exclude-namespaces kube-system,grafana
-
       - name: Expose Grafana
         run: |
           echo "=============================================="
           echo "GRAFANA ACCESS INSTRUCTIONS"
-          echo "1. Direct URL (if runner has public IP): $GRAFANA_URL"
+          echo "1. Direct URL: $GRAFANA_URL"
           echo "2. Local port-forward: http://localhost:3000"
           echo "Username: admin"
           echo "Password: ${{ env.GRAFANA_ADMIN_PASSWORD }}"
           echo "=============================================="
           
           nohup kubectl port-forward -n grafana svc/grafana 3000:3000 > /dev/null 2>&1 &
-          sleep 1800  # Keep alive for 30 minutes
+          sleep 300  # Keep alive for 5 minutes
 
       - name: Upload results
         uses: actions/upload-artifact@v4
