@@ -64,7 +64,6 @@ jobs:
             --addons=metrics-server \
             --delete-on-failure
           
-          # Install Prometheus and Grafana
           helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
           helm repo update
           helm install monitoring prometheus-community/kube-prometheus-stack \
@@ -94,6 +93,46 @@ jobs:
 
       - name: Run comprehensive security scan
         run: |
+          # Create Python script for processing results
+          cat > process_results.py <<'EOPY'
+          import json
+          import os
+          from pathlib import Path
+
+          def process_results(data):
+              metrics = []
+              if 'results' in data:  # New format
+                  for result in data['results']:
+                      for control in result.get('controls', []):
+                          metrics.append(format_metric(control))
+              elif 'controls' in data:  # Old format
+                  for control in data['controls']:
+                      metrics.append(format_metric(control))
+              return metrics
+
+          def format_metric(control):
+              control_id = control.get("controlID", "unknown").replace('"', '\\"')
+              name = control.get("name", "unknown").replace('"', '\\"')
+              status = 1 if control.get("status") == "passed" else 0
+              return f'kubescape_control_status{{id="{control_id}",name="{name}"}} {status}'
+
+          try:
+              with open(os.getenv('CLUSTER_SCAN_OUTPUT')) as f:
+                  data = json.load(f)
+              
+              metrics = process_results(data)
+              
+              if not metrics:
+                  raise ValueError("No valid control data found in scan results")
+              
+              Path(os.getenv('PROMETHEUS_FILE')).write_text('\n'.join(metrics))
+              print(f"Successfully generated {len(metrics)} metrics")
+              
+          except Exception as e:
+              print(f"Error processing scan results: {str(e)}")
+              exit(1)
+          EOPY
+
           # Run scan with error handling
           set +e
           $HOME/.kubescape/bin/kubescape scan \
@@ -111,48 +150,8 @@ jobs:
             # Format JSON output
             jq '.' "${{ env.CLUSTER_SCAN_OUTPUT }}" > temp.json && mv temp.json "${{ env.CLUSTER_SCAN_OUTPUT }}"
             
-            # Debug output structure
-            echo "Scan output structure:"
-            jq 'keys' "${{ env.CLUSTER_SCAN_OUTPUT }}"
-            
             # Convert to Prometheus metrics
-            python3 <<EOF
-            import json, os
-            from pathlib import Path
-            
-            def process_results(data):
-                metrics = []
-                if 'results' in data:  # New format
-                    for result in data['results']:
-                        for control in result.get('controls', []):
-                            metrics.append(format_metric(control))
-                elif 'controls' in data:  # Old format
-                    for control in data['controls']:
-                        metrics.append(format_metric(control))
-                return metrics
-            
-            def format_metric(control):
-                control_id = control.get("controlID", "unknown").replace('"', '\\"')
-                name = control.get("name", "unknown").replace('"', '\\"')
-                status = 1 if control.get("status") == "passed" else 0
-                return f'kubescape_control_status{{id="{control_id}",name="{name}"}} {status}'
-            
-            try:
-                with open(os.getenv('CLUSTER_SCAN_OUTPUT')) as f:
-                    data = json.load(f)
-                
-                metrics = process_results(data)
-                
-                if not metrics:
-                    raise ValueError("No valid control data found in scan results")
-                
-                Path(os.getenv('PROMETHEUS_FILE')).write_text('\n'.join(metrics))
-                print(f"Successfully generated {len(metrics)} metrics")
-                
-            except Exception as e:
-                print(f"Error processing scan results: {str(e)}")
-                exit(1)
-            EOF
+            python3 process_results.py
             
             # Extract critical findings
             CRITICAL_FINDINGS=$(jq '[.summary_details.numberOfCriticalSeverity, .summary."numberOfCriticalSeverity"] | map(select(. != null)) | first // 0' "${{ env.CLUSTER_SCAN_OUTPUT }}")
@@ -212,8 +211,8 @@ jobs:
 
       - name: Configure Grafana Dashboard
         run: |
-          # Create comprehensive dashboard
-          cat > ${{ env.GRAFANA_DASHBOARD_FILE }} <<EOF
+          # Create dashboard configuration
+          cat > "${{ env.GRAFANA_DASHBOARD_FILE }}" <<'EODASH'
           {
             "dashboard": {
               "title": "Kubescape Security Dashboard",
@@ -234,20 +233,11 @@ jobs:
                   "targets": [{
                     "expr": "count by (severity) (kubescape_control_status)"
                   }]
-                },
-                {
-                  "title": "Failed Controls",
-                  "type": "table",
-                  "gridPos": {"x": 0, "y": 6, "w": 16, "h": 8},
-                  "targets": [{
-                    "expr": "kubescape_control_status == 0",
-                    "format": "table"
-                  }]
                 }
               ]
             }
           }
-          EOF
+          EODASH
           
           # Get Grafana access details
           GRAFANA_URL="http://$(minikube ip):$(kubectl get svc -n monitoring monitoring-grafana -o jsonpath='{.spec.ports[0].nodePort}')"
@@ -257,7 +247,7 @@ jobs:
           
           # Import dashboard
           curl -X POST -H "Content-Type: application/json" \
-            -d @${{ env.GRAFANA_DASHBOARD_FILE }} \
+            -d @"${{ env.GRAFANA_DASHBOARD_FILE }}" \
             "$GRAFANA_URL/api/dashboards/db" \
             -u admin:admin || echo "Warning: Failed to import dashboard"
 
@@ -297,8 +287,10 @@ jobs:
         if: always()
         run: |
           # Reset Kubernetes Goat
-          cd /tmp/kubernetes-goat && bash reset-kubernetes-goat.sh || true
+          if [ -d "/tmp/kubernetes-goat" ]; then
+            cd /tmp/kubernetes-goat && bash reset-kubernetes-goat.sh || true
+          fi
           
           # Full cleanup
-          minikube delete --all --purge
-          sudo rm -rf ~/.minikube ~/.kube /tmp/kubernetes-goat
+          minikube delete --all --purge || true
+          sudo rm -rf ~/.minikube ~/.kube /tmp/kubernetes-goat || true
