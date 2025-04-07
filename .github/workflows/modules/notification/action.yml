@@ -1,7 +1,12 @@
-name: 'Alert Notifier'
+name: 'Security Notifier'
 runs:
   using: "composite"
   steps:
-    - run: ${{ github.action_path }}/scripts/send-report.sh
+    - name: Set script permissions
       shell: bash
-      name: Send Report
+      run: chmod +x ${{ github.action_path }}/scripts/send-report.sh
+
+    - name: Send Report
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      run: ${{ github.action_path }}/scripts/send-report.sh
