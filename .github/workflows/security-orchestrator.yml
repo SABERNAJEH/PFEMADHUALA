@@ -1,0 +1,52 @@
+name: Security Orchestrator
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+
+env:
+  CLUSTER_NAME: "security-scan-cluster"
+  SCAN_OUTPUT_DIR: "./security-reports"
+
+jobs:
+  security-pipeline:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: 'main-repo'
+
+      - name: Cluster Setup
+        uses: ./.github/workflows/modules/cluster
+        with:
+          cluster_name: ${{ env.CLUSTER_NAME }}
+          minikube_version: "v1.32.0"
+
+      - name: Dependency Analysis
+        uses: ./.github/workflows/modules/scanning
+        with:
+          scan_type: "dependency"
+          output_dir: ${{ env.SCAN_OUTPUT_DIR }}
+
+      - name: Container Scanning
+        uses: ./.github/workflows/modules/scanning
+        with:
+          scan_type: "container"
+          image_ref: "my-app-image:latest"
+          output_dir: ${{ env.SCAN_OUTPUT_DIR }}
+
+      - name: Security Visualization
+        uses: ./.github/workflows/modules/visualization
+        with:
+          grafana_password: "Admin@123"
+          prometheus_enabled: true
+
+      - name: Send Report
+        uses: ./.github/workflows/modules/notification
+        if: always()
+        with:
+          recipients: "team@example.com"
+          report_dir: ${{ env.SCAN_OUTPUT_DIR }}
