@@ -1,20 +1,14 @@
-name: 'Kubernetes Cluster Manager'
-
+name: 'Kubernetes Cluster Setup'
 inputs:
   cluster_name:
-    description: 'Name of the cluster'
+    description: 'Name for the cluster'
     required: true
-  minikube_version:
-    description: 'Minikube version'
-    default: 'v1.32.0'
-
 runs:
   using: "composite"
   steps:
-    - name: Initialize Cluster
+    - run: chmod +x ${{ github.action_path }}/scripts/*.sh
       shell: bash
-      run: ./${{ github.action_path }}/scripts/setup.sh ${{ inputs.cluster_name }} ${{ inputs.minikube_version }}
-      
-    - name: Export Context
+    
+    - run: ${{ github.action_path }}/scripts/setup.sh ${{ inputs.cluster_name }}
       shell: bash
-      run: echo "KUBECONFIG=~/.kube/config" >> $GITHUB_ENV
+      name: Start Cluster
