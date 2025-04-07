@@ -9,9 +9,19 @@ inputs:
 runs:
   using: "composite"
   steps:
-    - run: mkdir -p ${{ inputs.output_dir }}
+    - name: Set permissions
       shell: bash
+      run: |
+        chmod -R +x ${{ github.action_path }}/scripts/
+        
+    - name: Create output dir
+      shell: bash
+      run: mkdir -p ${{ inputs.output_dir }}
 
-    - run: ${{ github.action_path }}/scripts/dependency-check.sh ${{ inputs.target }} ${{ inputs.output_dir }}
+    - name: Run Dependency Check
       shell: bash
-      name: Dependency Scan
+      working-directory: ${{ github.workspace }}
+      run: |
+        ${{ github.action_path }}/scripts/dependency-check.sh \
+          "${{ inputs.target }}" \
+          "${{ inputs.output_dir }}"
