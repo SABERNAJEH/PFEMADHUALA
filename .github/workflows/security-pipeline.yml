@@ -9,7 +9,7 @@ env:
   CLUSTER_SCAN_OUTPUT: "cluster-scan-results.json"
   MINIKUBE_VERSION: "v1.32.0"
   KUBESCAPE_VERSION: "v3.0.10"
-
+#test
 jobs:
   security-scan:
     runs-on: ubuntu-22.04
