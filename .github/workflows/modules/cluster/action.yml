@@ -1,13 +1,17 @@
-name: 'Kubernetes Cluster Setup'
+name: 'Cluster Setup'
 inputs:
   cluster_name:
-    description: 'Name for the cluster'
+    description: 'Cluster name'
     required: true
 runs:
   using: "composite"
   steps:
-    - name: Set execute permissions
+    - name: Set permissions
       shell: bash
       run: |
-        find ${{ github.action_path }}/scripts -name "*.sh" -exec chmod +x {} \;
+        chmod +x ${{ github.action_path }}/scripts/*.sh
         ls -la ${{ github.action_path }}/scripts/
+
+    - name: Initialize Cluster
+      shell: bash
+      run: ${{ github.action_path }}/scripts/setup.sh ${{ inputs.cluster_name }}
