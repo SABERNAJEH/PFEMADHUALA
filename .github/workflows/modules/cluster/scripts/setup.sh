@@ -4,10 +4,21 @@ set -euo pipefail
 CLUSTER_NAME=$1
 echo "Initializing cluster: $CLUSTER_NAME"
 
-# Install Minikube
-curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
-sudo install minikube-linux-amd64 /usr/local/bin/minikube
+# Télécharger la dernière version de Minikube
+MINIKUBE_VERSION=$(curl -s https://api.github.com/repos/kubernetes/minikube/releases/latest | grep '"tag_name"' | cut -d '"' -f 4)
+echo "Installing Minikube $MINIKUBE_VERSION"
 
-# Start cluster
-minikube start -p "$CLUSTER_NAME" --driver=docker --memory=4096
-minikube status
+curl -Lo minikube "https://github.com/kubernetes/minikube/releases/download/${MINIKUBE_VERSION}/minikube-linux-amd64"
+chmod +x minikube
+sudo mv minikube /usr/local/bin/
+
+# Démarrer le cluster avec paramètres optimisés
+minikube start -p "$CLUSTER_NAME" \
+  --driver=docker \
+  --memory=4096 \
+  --cpus=2 \
+  --disk-size=20g \
+  --image-mirror-country=cn \  # Pour les problèmes de téléchargement
+  --base-image="registry.cn-hangzhou.aliyuncs.com/google_containers/kicbase:v0.0.46" 
+
+minikube status -p "$CLUSTER_NAME"
