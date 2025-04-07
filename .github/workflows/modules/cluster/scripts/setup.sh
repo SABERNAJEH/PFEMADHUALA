@@ -1,4 +1,7 @@
 #!/bin/bash
+
+minikube delete -p "$CLUSTER_NAME" || true
+docker system prune -af
 set -euo pipefail
 
 CLUSTER_NAME=$1
