@@ -10,7 +10,7 @@ env:
   GRAFANA_ADMIN_PASSWORD: "Admin@Secure123"
   MINIKUBE_VERSION: "v1.32.0"
   KUBESCAPE_VERSION: "v3.0.10"
-  GRAFANA_NODE_PORT: "30000"  # Port dans la plage valide (30000-32767)
+  GRAFANA_NODE_PORT: "30000"
 
 jobs:
   security-scan:
@@ -18,10 +18,16 @@ jobs:
     timeout-minutes: 30
 
     steps:
+      - name: Fix broken packages
+        run: |
+          sudo apt --fix-broken install -y
+          sudo dpkg --configure -a
+          sudo apt-get clean
+
       - name: Configure system
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -qq -y \
+          sudo apt-get update -o Acquire::Retries=3 -qq
+          sudo apt-get install -y --no-install-recommends \
             ca-certificates \
             curl \
             gnupg \
@@ -31,11 +37,16 @@ jobs:
             jq \
             apt-transport-https \
             docker.io
-          
-          sudo systemctl enable --now docker
-          sudo usermod -aG docker $USER
 
-      - name: Install Minikube and kubectl
+      - name: Configure Docker
+        run: |
+          sudo systemctl stop docker || true
+          sudo rm -f /var/lib/apt/lists/lock
+          sudo systemctl enable --now docker
+          sudo usermod -aG docker $USER || true
+          newgrp docker || true
+
+      - name: Install Minikube
         run: |
           curl -Lo minikube https://storage.googleapis.com/minikube/releases/${{ env.MINIKUBE_VERSION }}/minikube-linux-amd64
           chmod +x minikube
@@ -51,17 +62,15 @@ jobs:
             --addons=metrics-server \
             --wait=all
 
-      - name: Setup Helm and Grafana
+      - name: Setup Helm
         run: |
-          # Install Helm
           curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-          
-          # Configure Grafana
           helm repo add grafana https://grafana.github.io/helm-charts
           helm repo update
-          
+
+      - name: Install Grafana
+        run: |
           kubectl create namespace grafana || true
-          
           helm upgrade --install grafana grafana/grafana \
             --namespace grafana \
             --set persistence.enabled=true \
@@ -69,10 +78,7 @@ jobs:
             --set service.type=NodePort \
             --set service.nodePort=${{ env.GRAFANA_NODE_PORT }} \
             --wait
-          
-          # Expose Grafana service
-          minikube service grafana --url -n grafana > /dev/null 2>&1 &
-          
+
           MINIKUBE_IP=$(minikube ip)
           echo "GRAFANA_URL=http://$MINIKUBE_IP:${{ env.GRAFANA_NODE_PORT }}" >> $GITHUB_ENV
 
@@ -90,21 +96,18 @@ jobs:
             --output ${{ env.CLUSTER_SCAN_OUTPUT }} \
             --exclude-namespaces kube-system,grafana
 
-      - name: Display access information
+      - name: Expose Grafana
         run: |
           echo "=============================================="
-          echo "GRAFANA DASHBOARD ACCESS"
-          echo "URL: $GRAFANA_URL"
-          echo "Local port-forward: http://localhost:3000"
+          echo "GRAFANA ACCESS INSTRUCTIONS"
+          echo "1. Direct URL (if runner has public IP): $GRAFANA_URL"
+          echo "2. Local port-forward: http://localhost:3000"
           echo "Username: admin"
           echo "Password: ${{ env.GRAFANA_ADMIN_PASSWORD }}"
           echo "=============================================="
           
-          # Start port-forwarding
           nohup kubectl port-forward -n grafana svc/grafana 3000:3000 > /dev/null 2>&1 &
-          
-          # Keep alive for 30 minutes
-          sleep 1800
+          sleep 1800  # Keep alive for 30 minutes
 
       - name: Upload results
         uses: actions/upload-artifact@v4
