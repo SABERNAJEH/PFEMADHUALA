@@ -1,11 +1,23 @@
 .github/
 ├── workflows/
-│   ├── security-pipeline.yml         # Workflow principal
-│   └── actions/                      # Dossier pour actions locales
-│       ├── cluster-setup/
-│       │   ├── action.yml            # Définition de l'action
-│       │   └── setup.sh              # Scripts
-│       ├── kubernetes-goat/
-│       │   ├── action.yml
-│       │   └── deploy.sh
-│       └── ... (autres modules)
+│   ├── security-orchestrator.yml          # Workflow principal
+│   └── modules/
+│       ├── cluster/
+│       │   ├── action.yml                # Gestion du cluster
+│       │   └── scripts/
+│       │       ├── setup.sh
+│       │       └── cleanup.sh
+│       ├── scanning/
+│       │   ├── action.yml                # Analyses de sécurité
+│       │   └── scripts/
+│       │       ├── dependency-check.sh
+│       │       └── trivy-scan.sh
+│       ├── visualization/
+│       │   ├── action.yml                # Dashboard Grafana
+│       │   └── scripts/
+│       │       ├── deploy-monitoring.sh
+│       │       └── configure-dashboard.sh
+│       └── notification/
+│           ├── action.yml                # Alertes
+│           └── scripts/
+│               └── send-report.sh
