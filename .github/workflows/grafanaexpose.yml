@@ -18,15 +18,25 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - name: Fix broken packages
+      - name: Clean up system packages
         run: |
-          sudo apt --fix-broken install -y
-          sudo dpkg --configure -a
+          # Nettoyer les paquets problématiques
+          sudo apt-get remove -y --purge containerd docker.io || true
+          sudo apt-get autoremove -y
+          sudo rm -rf /var/lib/apt/lists/*
           sudo apt-get clean
 
-      - name: Configure system
+      - name: Configure system repositories
         run: |
+          # Ajouter la clé GPG officielle de Docker
+          sudo mkdir -p /etc/apt/keyrings
+          curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
           sudo apt-get update -o Acquire::Retries=3 -qq
+
+      - name: Install system dependencies
+        run: |
+          # Installer les dépendances de base sans conflits
           sudo apt-get install -y --no-install-recommends \
             ca-certificates \
             curl \
@@ -35,16 +45,20 @@ jobs:
             conntrack \
             socat \
             jq \
-            apt-transport-https \
-            docker.io
+            apt-transport-https
 
-      - name: Configure Docker
+      - name: Install Docker Engine
         run: |
-          sudo systemctl stop docker || true
-          sudo rm -f /var/lib/apt/lists/lock
+          # Installer Docker sans conflits
+          sudo apt-get install -y \
+            docker-ce \
+            docker-ce-cli \
+            containerd.io \
+            docker-buildx-plugin \
+            docker-compose-plugin
+          
           sudo systemctl enable --now docker
-          sudo usermod -aG docker $USER || true
-          newgrp docker || true
+          sudo usermod -aG docker $USER
 
       - name: Install Minikube
         run: |
