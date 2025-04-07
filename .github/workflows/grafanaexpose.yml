@@ -1,4 +1,4 @@
-name: Kubernetes Security Scan with Stable Grafana Access
+name: Kubernetes Security Scan with Grafana Access
 
 on:
   workflow_dispatch:
@@ -10,7 +10,7 @@ env:
   GRAFANA_ADMIN_PASSWORD: "Admin@Secure123"
   MINIKUBE_VERSION: "v1.32.0"
   KUBESCAPE_VERSION: "v3.0.10"
-  GRAFANA_PORT: "3000"
+  GRAFANA_NODE_PORT: "30000"  # Port dans la plage valide (30000-32767)
 
 jobs:
   security-scan:
@@ -18,14 +18,9 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - name: Configure system (optimized dependency handling)
+      - name: Configure system
         run: |
-          # Nettoyage des paquets problématiques
           sudo apt-get update -qq
-          sudo apt-get purge -qq -y docker.io docker-ce || true
-          sudo apt-get autoremove -qq -y
-          
-          # Installation sécurisée des dépendances
           sudo apt-get install -qq -y \
             ca-certificates \
             curl \
@@ -34,27 +29,20 @@ jobs:
             conntrack \
             socat \
             jq \
-            apt-transport-https
+            apt-transport-https \
+            docker.io
           
-          # Ajout du dépôt Docker officiel
-          sudo mkdir -p /etc/apt/keyrings
-          curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-          echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-          
-          # Installation propre de Docker
-          sudo apt-get update -qq
-          sudo apt-get install -qq -y docker-ce docker-ce-cli containerd.io
           sudo systemctl enable --now docker
           sudo usermod -aG docker $USER
 
-      - name: Install Minikube
+      - name: Install Minikube and kubectl
         run: |
           curl -Lo minikube https://storage.googleapis.com/minikube/releases/${{ env.MINIKUBE_VERSION }}/minikube-linux-amd64
           chmod +x minikube
           sudo install minikube /usr/local/bin/minikube
           minikube version
 
-      - name: Start Minikube with Grafana
+      - name: Start Minikube cluster
         run: |
           minikube start \
             --driver=docker \
@@ -63,14 +51,15 @@ jobs:
             --addons=metrics-server \
             --wait=all
 
-          # Install Helm if not exists
-          if ! command -v helm &> /dev/null; then
-            curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-          fi
-
-          # Install Grafana securely
-          helm repo add grafana https://grafana.github.io/helm-charts --force-update
+      - name: Setup Helm and Grafana
+        run: |
+          # Install Helm
+          curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+          
+          # Configure Grafana
+          helm repo add grafana https://grafana.github.io/helm-charts
           helm repo update
+          
           kubectl create namespace grafana || true
           
           helm upgrade --install grafana grafana/grafana \
@@ -78,12 +67,14 @@ jobs:
             --set persistence.enabled=true \
             --set adminPassword="${{ env.GRAFANA_ADMIN_PASSWORD }}" \
             --set service.type=NodePort \
-            --set service.nodePort=${{ env.GRAFANA_PORT }} \
+            --set service.nodePort=${{ env.GRAFANA_NODE_PORT }} \
             --wait
-
-          # Get Minikube IP
+          
+          # Expose Grafana service
+          minikube service grafana --url -n grafana > /dev/null 2>&1 &
+          
           MINIKUBE_IP=$(minikube ip)
-          echo "GRAFANA_URL=http://$MINIKUBE_IP:${{ env.GRAFANA_PORT }}" >> $GITHUB_ENV
+          echo "GRAFANA_URL=http://$MINIKUBE_IP:${{ env.GRAFANA_NODE_PORT }}" >> $GITHUB_ENV
 
       - name: Install Kubescape
         run: |
@@ -99,18 +90,18 @@ jobs:
             --output ${{ env.CLUSTER_SCAN_OUTPUT }} \
             --exclude-namespaces kube-system,grafana
 
-      - name: Expose Grafana access
+      - name: Display access information
         run: |
-          # Start port-forwarding
-          nohup kubectl port-forward -n grafana svc/grafana 3000:3000 > /dev/null 2>&1 &
-          
           echo "=============================================="
           echo "GRAFANA DASHBOARD ACCESS"
-          echo "Direct URL (if runner has public IP): $GRAFANA_URL"
+          echo "URL: $GRAFANA_URL"
           echo "Local port-forward: http://localhost:3000"
           echo "Username: admin"
           echo "Password: ${{ env.GRAFANA_ADMIN_PASSWORD }}"
           echo "=============================================="
+          
+          # Start port-forwarding
+          nohup kubectl port-forward -n grafana svc/grafana 3000:3000 > /dev/null 2>&1 &
           
           # Keep alive for 30 minutes
           sleep 1800
