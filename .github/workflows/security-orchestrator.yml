@@ -1,33 +1,9 @@
-name: Security Orchestrator
-on: [push, workflow_dispatch]
+steps:
+  - uses: actions/checkout@v4
+    with:
+      path: 'repo-root'  # Doit correspondre au chemin utilisé
 
-env:
-  CLUSTER_NAME: "security-cluster"
-  SCAN_RESULTS: "./security-reports"
-
-jobs:
-  security-scan:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          path: 'repo-root'
-
-      - name: Setup Kubernetes Cluster
-        uses: ./repo-root/.github/workflows/modules/cluster
-        with:
-          cluster_name: ${{ env.CLUSTER_NAME }}
-
-      - name: Run Security Scans
-        uses: ./repo-root/.github/workflows/modules/scanning
-        with:
-          target: "."
-          output_dir: ${{ env.SCAN_RESULTS }}
-
-      - name: Deploy Monitoring
-        uses: ./repo-root/.github/workflows/modules/visualization
-        if: success()
-
-      - name: Send Notification
-        uses: ./repo-root/.github/workflows/modules/notification
-        if: always()
+  - name: Setup Cluster
+    uses: ./.github/workflows/modules/cluster  # Chemin relatif direct
+    with:
+      cluster_name: ${{ env.CLUSTER_NAME }}
