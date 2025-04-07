@@ -6,9 +6,8 @@ inputs:
 runs:
   using: "composite"
   steps:
-    - run: chmod +x ${{ github.action_path }}/scripts/*.sh
+    - name: Set execute permissions
       shell: bash
-    
-    - run: ${{ github.action_path }}/scripts/setup.sh ${{ inputs.cluster_name }}
-      shell: bash
-      name: Start Cluster
+      run: |
+        find ${{ github.action_path }}/scripts -name "*.sh" -exec chmod +x {} \;
+        ls -la ${{ github.action_path }}/scripts/
