@@ -8,7 +8,6 @@ on:
 
 env:
   YAML_SCAN_OUTPUT: "yaml-scan-results.json"
-  CLUSTER_SCAN_OUTPUT: "cluster-scan-results.json"
   NOTIFICATION_RECIPIENTS: "najah.wchem@etudiant-isi.utm.tn, saber.fraj@etudiant-isi.utm.tn"
   KUBECONFIG_TIMEOUT: "10"
 
@@ -66,23 +65,6 @@ jobs:
           [ -f "${{ env.YAML_SCAN_OUTPUT }}" ] && \
             jq '.' "${{ env.YAML_SCAN_OUTPUT }}" > temp.json && \
             mv temp.json "${{ env.YAML_SCAN_OUTPUT }}"
-
-      - name: Scan Running Cluster
-        if: env.cluster_available == 'true'
-        id: cluster-scan
-        timeout-minutes: 5
-        run: |
-          export KUBECONFIG=~/.kube/config
-          kubescape scan \
-            --kubeconfig ~/.kube/config \
-            --format json \
-            --output ${{ env.CLUSTER_SCAN_OUTPUT }} \
-            || echo "Cluster scan completed with exit code $?"
-          
-          [ -f "${{ env.CLUSTER_SCAN_OUTPUT }}" ] && \
-            jq '.' "${{ env.CLUSTER_SCAN_OUTPUT }}" > temp.json && \
-            mv temp.json "${{ env.CLUSTER_SCAN_OUTPUT }}"
-
       - name: Generate Report File
         id: generate-report
         run: |
@@ -108,8 +90,6 @@ jobs:
           name: security-scan-results
           path: |
             ${{ env.YAML_SCAN_OUTPUT }}
-            ${{ env.CLUSTER_SCAN_OUTPUT }}
-            ${{ env.REPORT_FILE }}
 
       - name: Send Notification
         if: always()
@@ -126,9 +106,6 @@ jobs:
           to: ${{ env.NOTIFICATION_RECIPIENTS }}
           attachments: |
             ${{ env.YAML_SCAN_OUTPUT }}
-            ${{ env.CLUSTER_SCAN_OUTPUT }}
-            ${{ env.REPORT_FILE }}
-
       - name: Cleanup
         if: always()
         run: |
