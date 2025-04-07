@@ -1,4 +1,4 @@
-name: Kubernetes Security Scan with Direct Grafana Access
+name: Kubernetes Security Scan with Public Grafana Access
 
 on:
   workflow_dispatch:
@@ -7,47 +7,74 @@ on:
 
 env:
   CLUSTER_SCAN_OUTPUT: "cluster-scan-results.json"
-  GRAFANA_ADMIN_PASSWORD: "admin@123"  # Mot de passe personnalisable
+  GRAFANA_ADMIN_PASSWORD: "Admin@Secure123"  # Mot de passe sécurisé
   MINIKUBE_VERSION: "v1.32.0"
   KUBESCAPE_VERSION: "v3.0.10"
+  KICBASE_VERSION: "v0.0.40"
+  GRAFANA_PORT: "32000"  # Port fixe pour l'accès public
 
 jobs:
   security-scan:
     runs-on: ubuntu-22.04
-    timeout-minutes: 25
+    timeout-minutes: 30
 
     steps:
-      - name: Setup Minikube with Grafana
+      - name: Configure system and preload images
+        run: |
+          # Install dependencies
+          sudo apt-get update -qq
+          sudo apt-get install -qq -y --no-install-recommends \
+            conntrack socat curl docker.io jq
+          
+          # Start Docker service
+          sudo systemctl start docker
+          
+          # Preload Minikube image
+          docker pull gcr.io/k8s-minikube/kicbase:${{ env.KICBASE_VERSION }}
+          docker save gcr.io/k8s-minikube/kicbase:${{ env.KICBASE_VERSION }} -o kicbase.tar
+          sudo mkdir -p /var/tmp/minikube/cache/images/
+          sudo mv kicbase.tar /var/tmp/minikube/cache/images/
+
+      - name: Install Minikube and kubectl
         run: |
           # Install Minikube
           curl -Lo minikube https://storage.googleapis.com/minikube/releases/${{ env.MINIKUBE_VERSION }}/minikube-linux-amd64
           chmod +x minikube
           sudo install minikube /usr/local/bin/minikube
+          
+          # Install matching kubectl
+          minikube kubectl version
+          sudo install $(minikube kubectl --help | head -1 | awk '{print $3}') /usr/local/bin/kubectl
 
-          # Start cluster with Grafana
+      - name: Start Minikube with public Grafana
+        run: |
+          # Start cluster with specific port
           minikube start \
             --driver=docker \
+            --base-image="gcr.io/k8s-minikube/kicbase:${{ env.KICBASE_VERSION }}" \
             --memory=8192 \
             --cpus=4 \
-            --addons=grafana \
+            --ports=${{ env.GRAFANA_PORT }}:30000 \
             --wait=all
-          
-          # Expose Grafana on NodePort
-          kubectl patch svc grafana -n kubernetes-dashboard \
-            --type='json' \
-            -p='[{"op": "replace", "path": "/spec/type", "value": "NodePort"}]'
-          
-          # Set Grafana admin password
-          kubectl exec -n kubernetes-dashboard deployment/grafana -- \
-            grafana-cli admin reset-admin-password "${{ env.GRAFANA_ADMIN_PASSWORD }}"
-          
-          # Save access information
-          MINIKUBE_IP=$(minikube ip)
-          GRAFANA_PORT=$(kubectl get svc -n kubernetes-dashboard grafana -o jsonpath='{.spec.ports[0].nodePort}')
-          echo "GRAFANA_URL=http://$MINIKUBE_IP:$GRAFANA_PORT" >> $GITHUB_ENV
-          echo "Access Grafana at: http://$MINIKUBE_IP:$GRAFANA_PORT"
-          echo "Username: admin"
-          echo "Password: ${{ env.GRAFANA_ADMIN_PASSWORD }}"
+
+          # Install monitoring stack
+          kubectl create namespace monitoring
+          helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+          helm install grafana prometheus-community/kube-prometheus-stack \
+            --namespace monitoring \
+            --set grafana.adminPassword="${{ env.GRAFANA_ADMIN_PASSWORD }}" \
+            --set grafana.service.type=NodePort \
+            --set grafana.service.nodePort=30000 \
+            --wait
+
+          # Get public IP (fonctionne sur les runners auto-hébergés)
+          PUBLIC_IP=$(curl -s ifconfig.me)
+          echo "PUBLIC_IP=$PUBLIC_IP" >> $GITHUB_ENV
+          echo "GRAFANA_URL=http://$PUBLIC_IP:${{ env.GRAFANA_PORT }}" >> $GITHUB_ENV
+          echo "GRAFANA_CREDS=admin:${{ env.GRAFANA_ADMIN_PASSWORD }}" >> $GITHUB_ENV
+
+          # Configure firewall rules (si nécessaire)
+          echo "Configurez manuellement les règles firewall pour le port ${{ env.GRAFANA_PORT }} si besoin"
 
       - name: Install Kubescape
         run: |
@@ -55,37 +82,37 @@ jobs:
           echo "$HOME/.kubescape/bin" >> $GITHUB_PATH
           kubescape version
 
-      - name: Run security scan
+      - name: Run security scan and expose Grafana
         run: |
+          # Run scan
           kubescape scan \
             --enable-host-scan \
             --format json \
             --output ${{ env.CLUSTER_SCAN_OUTPUT }}
 
-      - name: Display Grafana access info
-        run: |
-          echo "=== GRAFANA ACCESS ==="
+          # Display access information
+          echo "=============================================="
+          echo "GRAFANA DASHBOARD ACCESSIBLE PUBLICLY"
           echo "URL: $GRAFANA_URL"
           echo "Username: admin"
           echo "Password: ${{ env.GRAFANA_ADMIN_PASSWORD }}"
-          echo "======================"
+          echo "=============================================="
           
-          # Keep the service running for access
-          nohup kubectl port-forward -n kubernetes-dashboard svc/grafana 3000:80 > /dev/null 2>&1 &
-          echo "You can also access via port-forwarding at: http://localhost:3000"
+          # Keep the service running
+          nohup kubectl port-forward -n monitoring svc/grafana 3000:30000 > /dev/null 2>&1 &
+          echo "Port-forward local disponible sur: http://localhost:3000"
 
-      - name: Upload scan results
+      - name: Maintain access
+        if: always()
+        run: |
+          echo "Maintenance de l'accès pendant 30 minutes..."
+          echo "Accès public: $GRAFANA_URL"
+          echo "Accès local: http://localhost:3000"
+          sleep 1800  # 30 minutes
+
+      - name: Upload results
         uses: actions/upload-artifact@v4
         with:
           name: security-scan-results
           path: ${{ env.CLUSTER_SCAN_OUTPUT }}
           retention-days: 3
-
-      - name: Keep alive for Grafana access
-        if: always()
-        run: |
-          echo "Workflow completed but keeping container alive for 30 minutes for Grafana access..."
-          echo "Connect using:"
-          echo "1. Direct URL: $GRAFANA_URL"
-          echo "2. Via port-forward: http://localhost:3000"
-          sleep 1800  # Keep alive for 30 minutes
