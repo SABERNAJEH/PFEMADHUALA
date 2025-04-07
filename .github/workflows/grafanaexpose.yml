@@ -10,7 +10,7 @@ env:
   GRAFANA_ADMIN_PASSWORD: "Admin@Secure123"
   MINIKUBE_VERSION: "v1.32.0"
   KUBESCAPE_VERSION: "v3.0.10"
-  GRAFANA_PORT: "3000"  # Port standard
+  GRAFANA_PORT: "3000"
 
 jobs:
   security-scan:
@@ -18,21 +18,34 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - name: Configure system (optimized)
+      - name: Configure system (optimized dependency handling)
         run: |
-          # Solution pour les problèmes de dépendances
-          sudo apt-get update -qq --fix-missing
+          # Nettoyage des paquets problématiques
+          sudo apt-get update -qq
+          sudo apt-get purge -qq -y docker.io docker-ce || true
+          sudo apt-get autoremove -qq -y
+          
+          # Installation sécurisée des dépendances
           sudo apt-get install -qq -y \
+            ca-certificates \
+            curl \
+            gnupg \
+            lsb-release \
             conntrack \
             socat \
-            curl \
-            apt-transport-https \
-            software-properties-common \
-            docker.io \
-            jq
+            jq \
+            apt-transport-https
           
-          # Démarrer Docker
+          # Ajout du dépôt Docker officiel
+          sudo mkdir -p /etc/apt/keyrings
+          curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+          
+          # Installation propre de Docker
+          sudo apt-get update -qq
+          sudo apt-get install -qq -y docker-ce docker-ce-cli containerd.io
           sudo systemctl enable --now docker
+          sudo usermod -aG docker $USER
 
       - name: Install Minikube
         run: |
@@ -50,20 +63,27 @@ jobs:
             --addons=metrics-server \
             --wait=all
 
-          # Installer Grafana proprement
-          helm repo add grafana https://grafana.github.io/helm-charts
-          helm install grafana grafana/grafana \
+          # Install Helm if not exists
+          if ! command -v helm &> /dev/null; then
+            curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+          fi
+
+          # Install Grafana securely
+          helm repo add grafana https://grafana.github.io/helm-charts --force-update
+          helm repo update
+          kubectl create namespace grafana || true
+          
+          helm upgrade --install grafana grafana/grafana \
             --namespace grafana \
-            --create-namespace \
             --set persistence.enabled=true \
             --set adminPassword="${{ env.GRAFANA_ADMIN_PASSWORD }}" \
             --set service.type=NodePort \
             --set service.nodePort=${{ env.GRAFANA_PORT }} \
             --wait
 
-          # Configurer l'accès
-          minikube service grafana --url -n grafana | grep -o 'http://[^ ]*' > grafana_url.txt
-          echo "GRAFANA_URL=$(cat grafana_url.txt)" >> $GITHUB_ENV
+          # Get Minikube IP
+          MINIKUBE_IP=$(minikube ip)
+          echo "GRAFANA_URL=http://$MINIKUBE_IP:${{ env.GRAFANA_PORT }}" >> $GITHUB_ENV
 
       - name: Install Kubescape
         run: |
@@ -81,25 +101,23 @@ jobs:
 
       - name: Expose Grafana access
         run: |
-          # Démarrer le port-forward
+          # Start port-forwarding
           nohup kubectl port-forward -n grafana svc/grafana 3000:3000 > /dev/null 2>&1 &
           
           echo "=============================================="
-          echo "GRAFANA ACCESS INFORMATION"
-          echo "Direct URL: $GRAFANA_URL"
+          echo "GRAFANA DASHBOARD ACCESS"
+          echo "Direct URL (if runner has public IP): $GRAFANA_URL"
           echo "Local port-forward: http://localhost:3000"
           echo "Username: admin"
           echo "Password: ${{ env.GRAFANA_ADMIN_PASSWORD }}"
           echo "=============================================="
           
-          # Garder les logs actifs
-          echo "Le service reste actif pendant 30 minutes..."
+          # Keep alive for 30 minutes
           sleep 1800
 
       - name: Upload results
         uses: actions/upload-artifact@v4
         with:
           name: security-scan-results
-          path: |
-            ${{ env.CLUSTER_SCAN_OUTPUT }}
+          path: ${{ env.CLUSTER_SCAN_OUTPUT }}
           retention-days: 3
