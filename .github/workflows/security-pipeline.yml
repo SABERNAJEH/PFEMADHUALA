@@ -1,0 +1,43 @@
+name: Kubernetes Security Pipeline
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+
+env:
+  CLUSTER_SCAN_OUTPUT: "cluster-scan-results.json"
+  MINIKUBE_VERSION: "v1.32.0"
+  KUBESCAPE_VERSION: "v3.0.10"
+
+jobs:
+  security-scan:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    needs: []
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Cluster
+        uses: ./.github/workflows/modules/cluster-setup.yml
+        with:
+          minikube_version: ${{ env.MINIKUBE_VERSION }}
+
+      - name: Deploy Kubernetes Goat
+        uses: ./.github/workflows/modules/kubernetes-goat.yml
+
+      - name: Run Security Scan
+        uses: ./.github/workflows/modules/kubescape-scan.yml
+        with:
+          scan_output: ${{ env.CLUSTER_SCAN_OUTPUT }}
+          kubescape_version: ${{ env.KUBESCAPE_VERSION }}
+
+      - name: Visualize in Grafana
+        uses: ./.github/workflows/modules/grafana-integration.yml
+        if: always()
+
+      - name: Send Notification
+        uses: ./.github/workflows/modules/notification.yml
+        if: always()

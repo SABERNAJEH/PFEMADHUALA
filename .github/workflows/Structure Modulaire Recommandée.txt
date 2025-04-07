@@ -1,0 +1,9 @@
+.github/
+├── workflows/
+│   ├── security-pipeline.yml          # Workflow principal
+│   └── modules/
+│       ├── cluster-setup.yml          # Module de création de cluster
+│       ├── kubernetes-goat.yml        # Module de déploiement Kubernetes Goat
+│       ├── kubescape-scan.yml         # Module d'analyse Kubescape
+│       ├── grafana-integration.yml    # Module Grafana
+│       └── notification.yml           # Module de notification
