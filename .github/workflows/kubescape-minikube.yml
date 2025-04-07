@@ -4,13 +4,13 @@ on:
   workflow_dispatch:
   push:
     branches: [main, master]
-#TESTTT6666
+
 env:
   CLUSTER_SCAN_OUTPUT: "cluster-scan-results.json"
   MINIKUBE_VERSION: "v1.32.0"
   KUBESCAPE_VERSION: "v3.0.10"
   MINIKUBE_WAIT_TIMEOUT: "3m"
-  NOTIFICATION_RECIPIENTS: "najah.wchem@etudiant-isi.utm.tn, saber.fraj@etudiant-isi.utm.tn"  # Ajout d'un destinataire par défaut
+  NOTIFICATION_RECIPIENTS: "najah.wchem@etudiant-isi.utm.tn, saber.fraj@etudiant-isi.utm.tn"
 
 jobs:
   scan-minikube:
