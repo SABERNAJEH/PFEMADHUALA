@@ -1,34 +1,17 @@
 name: 'Security Scanner'
-
 inputs:
-  scan_type:
-    description: 'Type of scan (dependency|container|cluster)'
-    required: true
+  target:
+    description: 'Target to scan'
+    default: '.'
   output_dir:
-    description: 'Output directory for reports'
-    default: './reports'
-  image_ref:
-    description: 'Container image reference'
-    required: false
-
+    description: 'Output directory'
+    required: true
 runs:
   using: "composite"
   steps:
-    - name: Run Scan
+    - run: mkdir -p ${{ inputs.output_dir }}
       shell: bash
-      run: |
-        mkdir -p ${{ inputs.output_dir }}
-        case "${{ inputs.scan_type }}" in
-          dependency)
-            ./${{ github.action_path }}/scripts/dependency-check.sh ${{ inputs.output_dir }}
-            ;;
-          container)
-            ./${{ github.action_path }}/scripts/trivy-scan.sh ${{ inputs.image_ref }} ${{ inputs.output_dir }}
-            ;;
-        esac
-        
-    - name: Upload Reports
-      uses: actions/upload-artifact@v4
-      with:
-        name: security-reports
-        path: ${{ inputs.output_dir }}/*
+
+    - run: ${{ github.action_path }}/scripts/dependency-check.sh ${{ inputs.target }} ${{ inputs.output_dir }}
+      shell: bash
+      name: Dependency Scan
