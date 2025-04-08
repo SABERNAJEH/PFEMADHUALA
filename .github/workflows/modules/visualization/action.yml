@@ -1,7 +1,0 @@
-name: 'Monitoring Dashboard'
-runs:
-  using: "composite"
-  steps:
-    - run: ${{ github.action_path }}/scripts/deploy-monitoring.sh
-      shell: bash
-      name: Deploy Grafana
