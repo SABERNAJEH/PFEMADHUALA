@@ -1,0 +1,29 @@
+name: Deploy Kubernetes Goat
+
+on:
+  workflow_call:
+
+env:
+  KUBERNETES_GOAT_VERSION: ${{ vars.KUBERNETES_GOAT_VERSION || 'master' }}
+
+jobs:
+  deploy-goat:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 8
+    steps:
+      - name: Cache Kubernetes Goat
+        uses: actions/cache@v4
+        with:
+          path: /tmp/kubernetes-goat
+          key: ${{ runner.os }}-goat-${{ env.KUBERNETES_GOAT_VERSION }}
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Deploy Kubernetes Goat
+        run: ./.github/scripts/deploy-goat.sh deploy
+
+      - name: Verify deployment
+        run: |
+          kubectl get pods --all-namespaces
+          echo "Kubernetes Goat version: $KUBERNETES_GOAT_VERSION"

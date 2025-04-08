@@ -1,0 +1,29 @@
+name: Run Security Scan
+
+on:
+  workflow_call:
+
+env:
+  CLUSTER_SCAN_OUTPUT: ${{ vars.CLUSTER_SCAN_OUTPUT || 'cluster-scan-results.json' }}
+  KUBESCAPE_VERSION: ${{ vars.KUBESCAPE_VERSION || 'v3.0.10' }}
+
+jobs:
+  run-scan:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Kubescape
+        run: ./.github/scripts/run-scan.sh install-kubescape
+
+      - name: Run comprehensive security scan
+        run: ./.github/scripts/run-scan.sh execute-scan
+
+      - name: Upload scan results
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-scan-${{ github.run_id }}
+          path: ${{ env.CLUSTER_SCAN_OUTPUT }}
+          retention-days: 3
