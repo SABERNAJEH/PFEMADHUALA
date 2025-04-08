@@ -1,0 +1,40 @@
+name: Kubernetes Security Scan with Goat Deployment
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+
+env:
+  CLUSTER_SCAN_OUTPUT: "cluster-scan-results.json"
+  MINIKUBE_VERSION: "v1.32.0"
+  KUBESCAPE_VERSION: "v3.0.10"
+  KUBERNETES_GOAT_VERSION: "master"
+  MINIKUBE_WAIT_TIMEOUT: "5m"
+  NOTIFICATION_RECIPIENTS: "najah.wchem@etudiant-isi.utm.tn,saber.fraj@etudiant-isi.utm.tn"
+
+jobs:
+  setup-environment:
+    uses: ./.github/workflows/modules/setup-minikube.yaml
+    secrets: inherit
+
+  deploy-kubernetes-goat:
+    needs: setup-environment
+    uses: ./.github/workflows/modules/deploy-goat.yaml
+    secrets: inherit
+
+  run-security-scan:
+    needs: deploy-kubernetes-goat
+    uses: ./.github/workflows/modules/run-scan.yaml
+    secrets: inherit
+
+  send-notification:
+    needs: run-security-scan
+    uses: ./.github/workflows/modules/notification.yaml
+    secrets: inherit
+
+  cleanup-environment:
+    if: always()
+    needs: [setup-environment, deploy-kubernetes-goat, run-security-scan]
+    uses: ./.github/workflows/modules/cleanup.yaml
+    secrets: inherit
