@@ -17,26 +17,26 @@ env:
 jobs:
 #test
   setup-environment:
-    uses: ./.github/workflows/modules/setup-minikube.yaml
+    uses: ./.github/workflows/setup-minikube.yaml
     secrets: inherit
 
   deploy-kubernetes-goat:
     needs: setup-environment
-    uses: ./.github/workflows/modules/deploy-goat.yaml
+    uses: ./.github/workflows/deploy-goat.yaml
     secrets: inherit
 
   run-security-scan:
     needs: deploy-kubernetes-goat
-    uses: ./.github/workflows/modules/run-scan.yaml
+    uses: ./.github/workflows/run-scan.yaml
     secrets: inherit
 
   send-notification:
     needs: run-security-scan
-    uses: ./.github/workflows/modules/notification.yaml
+    uses: ./.github/workflows/notification.yaml
     secrets: inherit
 
   cleanup-environment:
     if: always()
     needs: [setup-environment, deploy-kubernetes-goat, run-security-scan]
-    uses: ./.github/workflows/modules/cleanup.yaml
+    uses: ./.github/workflows/cleanup.yaml
     secrets: inherit
