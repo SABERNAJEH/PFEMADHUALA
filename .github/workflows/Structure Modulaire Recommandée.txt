@@ -1,23 +1,17 @@
 .github/
 ├── workflows/
-│   ├── security-orchestrator.yml          # Workflow principal
+│   ├── k8s-security-scan.yaml
 │   └── modules/
-│       ├── cluster/
-│       │   ├── action.yml                # Gestion du cluster
-│       │   └── scripts/
-│       │       ├── setup.sh
-│       │       └── cleanup.sh
-│       ├── scanning/
-│       │   ├── action.yml                # Analyses de sécurité
-│       │   └── scripts/
-│       │       ├── dependency-check.sh
-│       │       └── trivy-scan.sh
-│       ├── visualization/
-│       │   ├── action.yml                # Dashboard Grafana
-│       │   └── scripts/
-│       │       ├── deploy-monitoring.sh
-│       │       └── configure-dashboard.sh
-│       └── notification/
-│           ├── action.yml                # Alertes
-│           └── scripts/
-│               └── send-report.sh
+│       ├── setup-minikube.yaml
+│       ├── deploy-goat.yaml
+│       ├── run-scan.yaml
+│       ├── notification.yaml
+│       └── cleanup.yaml
+└── scripts/
+    ├── setup-minikube.sh
+    ├── deploy-goat.sh
+    ├── run-scan.sh
+    └── cleanup.sh
+
+
+
