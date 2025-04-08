@@ -22,6 +22,9 @@ jobs:
 
       - name: Checkout repository
         uses: actions/checkout@v4
+        
+      - name: Make scripts executable
+        run: chmod +x .github/scripts/*.sh
 
       - name: Configure system
         run: ./.github/scripts/setup-minikube.sh configure-system
