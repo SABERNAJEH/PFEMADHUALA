@@ -1,0 +1,23 @@
+name: Cleanup Environment
+
+on:
+  workflow_call:
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Cleanup Kubernetes Goat
+        run: ./.github/scripts/cleanup.sh cleanup-goat
+
+      - name: Cleanup Minikube cluster
+        run: ./.github/scripts/cleanup.sh cleanup-minikube
+
+      - name: Remove temporary files
+        run: |
+          sudo rm -rf ~/.minikube ~/.kube /tmp/kubernetes-goat
+          echo "Cleanup completed"
