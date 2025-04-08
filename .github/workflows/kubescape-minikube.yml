@@ -1,5 +1,5 @@
 name: Kubernetes Security Scan with Goat Deployment
-#TEETS
+
 on:
   workflow_dispatch:
   push:
@@ -7,6 +7,7 @@ on:
 
 env:
   CLUSTER_SCAN_OUTPUT: "cluster-scan-results.json"
+  FILTERED_SCAN_OUTPUT: "filtered-scan-results.json"
   MINIKUBE_VERSION: "v1.32.0"
   KUBESCAPE_VERSION: "v3.0.10"
   KUBERNETES_GOAT_VERSION: "master"
@@ -41,7 +42,6 @@ jobs:
           sudo install minikube /usr/local/bin/minikube
           minikube version
           
-          # Install kubectl
           curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
           sudo install kubectl /usr/local/bin/kubectl
 
@@ -88,20 +88,23 @@ jobs:
             --output ${{ env.CLUSTER_SCAN_OUTPUT }} \
             || echo "Scan completed with exit code $?"
           
-          # Format JSON output for readability
-          [ -f "${{ env.CLUSTER_SCAN_OUTPUT }}" ] && \
-            jq '.' "${{ env.CLUSTER_SCAN_OUTPUT }}" > temp.json && \
-            mv temp.json "${{ env.CLUSTER_SCAN_OUTPUT }}"
-          
-          # Extract critical findings count
-          CRITICAL_FINDINGS=$(jq '.summary_details.numberOfCriticalSeverity' "${{ env.CLUSTER_SCAN_OUTPUT }}")
-          echo "CRITICAL_FINDINGS=$CRITICAL_FINDINGS" >> $GITHUB_ENV
+          # Format and filter JSON output to keep only failed controls
+          if [ -f "${{ env.CLUSTER_SCAN_OUTPUT }}" ]; then
+            jq 'walk(if type == "object" then with_entries(select(.value.status == "failed" or .value.status == "FAILED")) else . end)' \
+              "${{ env.CLUSTER_SCAN_OUTPUT }}" > "${{ env.FILTERED_SCAN_OUTPUT }}"
+            
+            # Extract critical findings count from filtered results
+            CRITICAL_FINDINGS=$(jq '[.. | select(.severity? == "critical" and (.status == "failed" or .status == "FAILED"))] | length' "${{ env.FILTERED_SCAN_OUTPUT }}")
+            echo "CRITICAL_FINDINGS=$CRITICAL_FINDINGS" >> $GITHUB_ENV
+          else
+            echo "CRITICAL_FINDINGS=0" >> $GITHUB_ENV
+          fi
 
       - name: Upload scan results
         uses: actions/upload-artifact@v4
         with:
           name: security-scan-${{ github.run_id }}
-          path: ${{ env.CLUSTER_SCAN_OUTPUT }}
+          path: ${{ env.FILTERED_SCAN_OUTPUT }}
           retention-days: 3
 
       - name: Send notification with scan summary
@@ -113,20 +116,20 @@ jobs:
           username: ${{ secrets.GMAIL_USERNAME }}
           password: ${{ secrets.GMAIL_PASSWORD }}
           secure: true
-          subject: "Kubernetes Security Scan Report - ${{ github.repository }}"
+          subject: "Kubernetes Security Scan Report - ${{ github.repository }} (Failed Only)"
           body: |
             Kubernetes security scan completed with results:
             
             - Cluster: Minikube with Kubernetes Goat
-            - Critical Findings: ${{ env.CRITICAL_FINDINGS || 'N/A' }}
-            - Full report attached
+            - Critical Findings: ${{ env.CRITICAL_FINDINGS || '0' }}
+            - Only failed security controls are included in the attached report
             
             Scan details:
             - Kubescape version: ${{ env.KUBESCAPE_VERSION }}
             - Timestamp: $(date -u)
           from: ${{ secrets.GMAIL_USERNAME }}
           to: ${{ env.NOTIFICATION_RECIPIENTS }}
-          attachments: ${{ env.CLUSTER_SCAN_OUTPUT }}
+          attachments: ${{ env.FILTERED_SCAN_OUTPUT }}
 
       - name: Cleanup Kubernetes Goat
         if: always()
