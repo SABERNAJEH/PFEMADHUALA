@@ -1,5 +1,4 @@
 name: Kubernetes Security Scan with Goat Deployment
-#TEETS
 on:
   workflow_dispatch:
   push:
