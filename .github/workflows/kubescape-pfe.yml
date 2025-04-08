@@ -1,0 +1,113 @@
+name: Kubescape Security Scan
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+env:
+  YAML_SCAN_OUTPUT: "yaml-scan-results.json"
+  NOTIFICATION_RECIPIENTS: "najah.wchem@etudiant-isi.utm.tn, saber.fraj@etudiant-isi.utm.tn"
+  KUBECONFIG_TIMEOUT: "10"
+
+jobs:
+  security-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Install Kubescape
+        run: |
+          curl -s https://raw.githubusercontent.com/kubescape/kubescape/master/install.sh | /bin/bash
+          echo "$HOME/.kubescape/bin" >> $GITHUB_PATH
+          $HOME/.kubescape/bin/kubescape version
+
+      - name: Setup Kubernetes Access
+        id: setup-kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          
+          if [ -z "${{ secrets.KUBECONFIG }}" ]; then
+            echo "::warning::No KUBECONFIG secret found"
+            echo "cluster_available=false" >> $GITHUB_ENV
+            exit 0
+          fi
+          
+          echo "${{ secrets.KUBECONFIG }}" > ~/.kube/config
+          chmod 600 ~/.kube/config
+          
+          if ! kubectl config view --raw &> /dev/null; then
+            echo "::error::Invalid kubeconfig format"
+            echo "cluster_available=false" >> $GITHUB_ENV
+            exit 0
+          fi
+          
+          export KUBECONFIG=~/.kube/config
+          if timeout ${{ env.KUBECONFIG_TIMEOUT }} kubectl cluster-info &> /dev/null; then
+            echo "::info::✅ Cluster connection successful"
+            echo "CLUSTER_NAME=$(kubectl config current-context)" >> $GITHUB_ENV
+            echo "cluster_available=true" >> $GITHUB_ENV
+          else
+            echo "::warning::⚠️ Cluster connection failed"
+            echo "cluster_available=false" >> $GITHUB_ENV
+          fi
+
+      - name: Scan Kubernetes Manifests
+        id: yaml-scan
+        run: |
+          kubescape scan *.yaml \
+            --format json \
+            --output ${{ env.YAML_SCAN_OUTPUT }} \
+            || echo "YAML scan completed with exit code $?"
+          
+          [ -f "${{ env.YAML_SCAN_OUTPUT }}" ] && \
+            jq '.' "${{ env.YAML_SCAN_OUTPUT }}" > temp.json && \
+            mv temp.json "${{ env.YAML_SCAN_OUTPUT }}"
+      - name: Generate Report File
+        id: generate-report
+        run: |
+          REPORT_FILE="report.txt"
+          echo "Security Scan Report" > $REPORT_FILE
+          echo "-------------------" >> $REPORT_FILE
+          echo "- Repository: ${{ github.repository }}" >> $REPORT_FILE
+          echo "- Timestamp: $(date)" >> $REPORT_FILE
+          echo "- YAML Scan: ${{ steps.yaml-scan.outcome }}" >> $REPORT_FILE
+          
+          if [ "${{ env.cluster_available }}" = "true" ]; then
+            echo "- Cluster Scan: ${{ steps.cluster-scan.outcome }}" >> $REPORT_FILE
+          else
+            echo "- Cluster Scan: Not performed (cluster unavailable)" >> $REPORT_FILE
+          fi
+          
+          echo "- Workflow: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> $REPORT_FILE
+          echo "REPORT_FILE=$REPORT_FILE" >> $GITHUB_ENV
+
+      - name: Upload Results
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-scan-results
+          path: |
+            ${{ env.YAML_SCAN_OUTPUT }}
+
+      - name: Send Notification
+        if: always()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.GMAIL_USERNAME }}
+          password: ${{ secrets.GMAIL_PASSWORD }}
+          secure: true
+          subject: "Kubescape Report - ${{ github.repository }}"
+          body: file://${{ env.REPORT_FILE }}
+          from: ${{ secrets.GMAIL_USERNAME }}
+          to: ${{ env.NOTIFICATION_RECIPIENTS }}
+          attachments: |
+            ${{ env.YAML_SCAN_OUTPUT }}
+      - name: Cleanup
+        if: always()
+        run: |
+          [ -f ~/.kube/config ] && rm -f ~/.kube/config
+          [ -f ${{ env.REPORT_FILE }} ] && rm -f ${{ env.REPORT_FILE }}
