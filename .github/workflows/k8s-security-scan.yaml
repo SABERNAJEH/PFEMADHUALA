@@ -14,6 +14,7 @@ env:
   NOTIFICATION_RECIPIENTS: "najah.wchem@etudiant-isi.utm.tn,saber.fraj@etudiant-isi.utm.tn"
 
 jobs:
+#test
   setup-environment:
     uses: ./.github/workflows/modules/setup-minikube.yaml
     secrets: inherit
