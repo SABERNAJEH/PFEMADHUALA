@@ -5,7 +5,7 @@ on:
   pull_request:
     branches: [ master ]
 env:
-  REPORT_EMAIL: ${{ secrets.REPORT_EMAIL }}
+  REPORT_EMAIL: "benmaktoumferjani@gmail.com"
 
 jobs:
   notifications:
