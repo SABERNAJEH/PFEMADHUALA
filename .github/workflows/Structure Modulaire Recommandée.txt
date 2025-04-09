@@ -1,17 +1,19 @@
 .github/
 ├── workflows/
-│   ├── k8s-security-scan.yaml
-│   └── modules/
-│       ├── setup-minikube.yaml
-│       ├── deploy-goat.yaml
-│       ├── run-scan.yaml
-│       ├── notification.yaml
-│       └── cleanup.yaml
-└── scripts/
-    ├── setup-minikube.sh
-    ├── deploy-goat.sh
-    ├── run-scan.sh
-    └── cleanup.sh
-
+│   ├── security-pipeline.yml
+│   ├── notification-job.yml
+│   ├── scanning-job.yml
+│   └── validation-job.yml
+├── scripts/
+│   ├── notification/
+│   │   ├── send-alert.py
+│   │   └── requirements.txt
+│   ├── scanning/
+│   │   ├── kubescape-scan.sh
+│   │   ├── trivy-scan.sh
+│   │   └── send-report.py
+│   └── validation/
+│       ├── godgo-validate.sh
+│       └── deploy-scan.sh
 
 
