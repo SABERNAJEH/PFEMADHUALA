@@ -1,51 +1,46 @@
+#!/usr/bin/env python3
 import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 import os
 import sys
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
-def send_email(to_emails, subject="🔄 Modification du Repository PFEMADHUALA", body="Une modification a été détectée dans le repository."):
-    smtp_server = "smtp.gmail.com"
-    smtp_port = 587
-    sender_email = os.getenv('GMAIL_USERNAME')
+def send_email(to_emails):
+    # Vérification des variables d'environnement
+    sender_email = os.getenv('GMAIL_USER')
     sender_password = os.getenv('GMAIL_PASSWORD')
     
+    if not sender_email or not sender_password:
+        print("❌ Erreur: GMAIL_USER ou GMAIL_PASSWORD non défini")
+        sys.exit(1)
+
+    # Configuration du message
     msg = MIMEMultipart()
     msg['From'] = sender_email
     msg['To'] = to_emails
-    msg['Subject'] = subject
+    msg['Subject'] = "Notification GitHub Actions"
     
+    body = f"""
+    Nouvelle modification détectée dans le repository.
+    Repository: {os.getenv('GITHUB_REPOSITORY', 'inconnu')}
+    Commit: {os.getenv('GITHUB_SHA', 'inconnu')}
+    """
     msg.attach(MIMEText(body, 'plain'))
-    
+
+    # Envoi de l'email
     try:
-        server = smtplib.SMTP(smtp_server, smtp_port)
-        server.starttls()
-        server.login(sender_email, sender_password)
-        server.sendmail(sender_email, to_emails.split(','), msg.as_string())
-        server.quit()
-        print("Email envoyé avec succès!")
+        with smtplib.SMTP('smtp.gmail.com', 587) as server:
+            server.starttls()
+            server.login(sender_email, sender_password)
+            server.sendmail(sender_email, to_emails.split(','), msg.as_string())
+        print("✅ Email envoyé avec succès")
     except Exception as e:
-        print(f"Échec d'envoi: {e}")
+        print(f"❌ Échec d'envoi: {str(e)}")
         sys.exit(1)
 
 if __name__ == "__main__":
-    recipients = sys.argv[1]
-    repo_name = os.getenv('GITHUB_REPOSITORY', 'PFEMADHUALA')
-    commit_sha = os.getenv('GITHUB_SHA', 'latest commit')
-    repo_url = f"https://github.com/{repo_name}"
-    commit_url = f"{repo_url}/commit/{commit_sha}"
+    if len(sys.argv) < 2:
+        print("Usage: python send-alert.py recipient1@example.com,recipient2@example.com")
+        sys.exit(1)
     
-    email_body = f"""
-    🚨 Alerte de Modification - PFEMADHUALA
-    
-    Une nouvelle modification a été détectée dans le repository:
-    
-    Repository: {repo_name}
-    Commit SHA: {commit_sha}
-    Lien du commit: {commit_url}
-    Lien du repository: {repo_url}
-    
-    Les scans de sécurité Kubescape et Trivy vont maintenant s'exécuter sur le code modifié.
-    """
-    
-    send_email(recipients, body=email_body)
+    send_email(sys.argv[1])
