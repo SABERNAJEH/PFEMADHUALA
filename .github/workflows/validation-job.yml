@@ -1,0 +1,21 @@
+name: ✅ Validation et Déploiement
+
+on:
+  workflow_call:
+    inputs:
+      scan-results:
+        required: true
+        type: string
+
+jobs:
+  validate-and-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout du code
+        uses: actions/checkout@v3
+
+      - name: Validation avec GoDaddy
+        run: .github/scripts/validation/godgo-validate.sh
+
+      - name: Scan après déploiement
+        run: .github/scripts/validation/deploy-scan.sh
