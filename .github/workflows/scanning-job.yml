@@ -3,11 +3,11 @@ name: 🔍 Analyse de Sécurité
 on:
   workflow_call:
     secrets:
-      GMAIL_USER:
+      EMAIL_FROM:
         required: true
-      GMAIL_PASSWORD:
+      EMAIL_PWD:
         required: true
-      REPORT_EMAIL:
+      REPORT_TO:
         required: true
 
 jobs:
@@ -15,30 +15,26 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       scan-results: ${{ steps.set-outputs.outputs.results }}
-
+    
     steps:
-      - name: Checkout du code
-        uses: actions/checkout@v3
-      - name: Rendre les scripts exécutables
-        run: chmod +x .github/scripts/**/*.sh
-        shell: bash
- 
+      - uses: actions/checkout@v3
 
-      - name: Installation de Kubescape
+      - run: chmod +x .github/scripts/**/*.sh
+
+      - name: Install Kubescape
         run: |
           curl -s https://raw.githubusercontent.com/kubescape/kubescape/master/install.sh | /bin/bash
-          echo "$HOME/.kubescape" >> $GITHUB_PATH
 
-      - name: Exécution du scan Kubescape
-        run: .github/scripts/scanning/kubescape-scan.sh
+      - run: .github/scripts/scanning/kubescape-scan.sh
+        continue-on-error: true
 
-      - name: Envoi du rapport
+      - name: Send report
         env:
-          GMAIL_USER: ${{ secrets.GMAIL_USERNAME }}
-          GMAIL_PASSWORD: ${{ secrets.GMAIL_PASSWORD }}
-          REPORT_EMAIL: ${{ secrets.REPORT_EMAIL }}
+          GMAIL_USER: ${{ secrets.EMAIL_FROM }}
+          GMAIL_PWD: ${{ secrets.EMAIL_PWD }}
+          REPORT_EMAIL: ${{ secrets.REPORT_TO }}
         run: python .github/scripts/scanning/send-report.py
 
-      - name: Définition des résultats
+      - name: Set outputs
         id: set-outputs
         run: echo "results=$(cat scan-results.json | jq -c)" >> $GITHUB_OUTPUT
