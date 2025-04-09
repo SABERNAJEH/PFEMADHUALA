@@ -13,6 +13,10 @@ jobs:
     steps:
       - name: Checkout du code
         uses: actions/checkout@v3
+      - name: Rendre les scripts exécutables
+        run: chmod +x .github/scripts/**/*.sh
+        shell: bash
+
 
       - name: Validation avec GoDaddy
         run: .github/scripts/validation/godgo-validate.sh
