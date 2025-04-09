@@ -17,35 +17,43 @@ jobs:
       scan-results: ${{ steps.set-outputs.outputs.results }}
     
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-      - run: chmod +x .github/scripts/**/*.sh
+      - name: Make scripts executable
+        run: chmod +x .github/scripts/**/*.sh
 
       - name: Install Kubescape
         run: |
           curl -s https://raw.githubusercontent.com/kubescape/kubescape/master/install.sh | /bin/bash
+          echo "$HOME/.kubescape" >> $GITHUB_PATH
 
-      - run: .github/scripts/scanning/kubescape-scan.sh
-        continue-on-error: true
-
+      - name: Create reports directory
+        run: mkdir -p .github/reports
 
       - name: Run Kubescape scan
+        id: scan
         run: |
-          chmod +x .github/scripts/scanning/kubescape-scan.sh
+          echo "Running Kubescape scan..."
           .github/scripts/scanning/kubescape-scan.sh
-          echo "Contenu du répertoire :"
+          echo "Scan results:"
           ls -la .github/reports/
-      
+          cat .github/reports/scan-results.json | jq .
+
       - name: Send report
         env:
           GMAIL_USER: ${{ secrets.EMAIL_FROM }}
           GMAIL_PASSWORD: ${{ secrets.EMAIL_PWD }}
           REPORT_EMAIL: ${{ secrets.REPORT_TO }}
         run: |
-          echo "Répertoire courant : $(pwd)"
+          echo "Current directory: $(pwd)"
+          echo "Report file:"
+          ls -la .github/reports/scan-results.json
           python .github/scripts/scanning/send-report.py
-  
 
       - name: Set outputs
         id: set-outputs
-        run: echo "results=$(cat scan-results.json | jq -c)" >> $GITHUB_OUTPUT
+        run: |
+          echo "Setting outputs..."
+          echo "results=$(cat .github/reports/scan-results.json | jq -c)" >> $GITHUB_OUTPUT
+          echo "Output set successfully"
