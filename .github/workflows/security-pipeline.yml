@@ -1,27 +1,29 @@
 name: 🛡️ Kubernetes Security Pipeline
+
 on:
   push:
     branches: [ master ]
   pull_request:
     branches: [ master ]
 
-
 jobs:
   notifications:
     uses: ./.github/workflows/notification-job.yml
     secrets:
       EMAIL_TO: "saber.fraj@etudiant-isi.utm.tn,najeh.wchem@etudiant-isi.utm.tn"
+      GMAIL_USER: ${{ secrets.GMAIL_USERNAME }}  # Corrigé pour correspondre à votre secret existant
+      GMAIL_PASSWORD: ${{ secrets.GMAIL_PASSWORD }}
 
   security-scan:
     needs: notifications
     uses: ./.github/workflows/scanning-job.yml
     secrets:
-      REPORT_EMAIL: ${{ secrets.REPORT_EMAIL }}
+      GMAIL_USER: ${{ secrets.GMAIL_USERNAME }}  # Utilisation des secrets existants
+      GMAIL_PASSWORD: ${{ secrets.GMAIL_PASSWORD }}
+      REPORT_EMAIL: ${{ secrets.REPORT_EMAIL }}  # Après l'avoir créé
 
   validation:
     needs: security-scan
     uses: ./.github/workflows/validation-job.yml
     with:
       scan-results: ${{ needs.security-scan.outputs.scan-results }}
-      
-#ahleen w xahliin hela hela ya gomar
