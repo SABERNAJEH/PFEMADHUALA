@@ -1,7 +1,14 @@
-name: 🔍 Scan de Sécurité Kubernetes
+name: 🔍 Analyse de Sécurité
 
 on:
   workflow_call:
+    secrets:
+      GMAIL_USER:
+        required: true
+      GMAIL_PASSWORD:
+        required: true
+      REPORT_EMAIL:
+        required: true
 
 jobs:
   security-scan:
