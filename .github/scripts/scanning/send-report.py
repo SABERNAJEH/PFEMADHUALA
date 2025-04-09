@@ -1,44 +1,51 @@
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from email.mime.application import MIMEApplication
 import os
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.application import MIMEApplication
 
 def send_report():
-    sender_email = os.getenv('GMAIL_USER')
-    sender_password = os.getenv('GMAIL_PASSWORD')
-    recipient = os.getenv('REPORT_EMAIL')
-    
-    msg = MIMEMultipart()
-    msg['From'] = sender_email
-    msg['To'] = recipient
-    msg['Subject'] = '📊 Rapport de Scan - PFEMADHUALA'
-    
-    body = """
-    Bonjour,
-    
-    Veuillez trouver ci-joint le rapport de sécurité généré par Kubescape.
-    
-    Cordialement,
-    Votre Pipeline CI/CD
-    """
-    msg.attach(MIMEText(body, 'plain'))
-    
-    with open('scan-results.json', 'rb') as f:
-        attach = MIMEApplication(f.read(), _subtype='json')
-        attach.add_header('Content-Disposition', 'attachment', filename='scan-results.json')
-        msg.attach(attach)
-    
     try:
-        server = smtplib.SMTP('smtp.gmail.com', 587)
-        server.starttls()
-        server.login(sender_email, sender_password)
-        server.sendmail(sender_email, recipient, msg.as_string())
-        server.quit()
-        print("📤 Rapport envoyé avec succès!")
+        # Chemin absolu vers le fichier de rapport
+        report_path = os.path.join(os.getcwd(), '.github', 'reports', 'scan-results.json')
+        
+        # Vérification que le fichier existe
+        if not os.path.exists(report_path):
+            raise FileNotFoundError(f"Le fichier de rapport {report_path} n'existe pas")
+
+        # Configuration email
+        sender = os.getenv('GMAIL_USER')
+        password = os.getenv('GMAIL_PASSWORD')
+        recipient = os.getenv('REPORT_EMAIL')
+
+        if not all([sender, password, recipient]):
+            raise ValueError("Variables d'environnement manquantes")
+
+        # Construction du message
+        msg = MIMEMultipart()
+        msg['From'] = sender
+        msg['To'] = recipient
+        msg['Subject'] = '📊 Rapport de Scan - PFEMADHUALA'
+        
+        msg.attach(MIMEText("Veuillez trouver ci-joint le rapport de scan.", 'plain'))
+
+        # Ajout de la pièce jointe
+        with open(report_path, 'rb') as f:
+            part = MIMEApplication(f.read(), Name='scan-results.json')
+            part['Content-Disposition'] = f'attachment; filename="scan-results.json"'
+            msg.attach(part)
+
+        # Envoi
+        with smtplib.SMTP('smtp.gmail.com', 587) as server:
+            server.starttls()
+            server.login(sender, password)
+            server.sendmail(sender, recipient, msg.as_string())
+        
+        print("✅ Rapport envoyé avec succès")
+
     except Exception as e:
-        print(f"❌ Échec d'envoi du rapport: {e}")
-        exit(1)
+        print(f"❌ Erreur: {str(e)}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     send_report()
