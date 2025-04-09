@@ -28,12 +28,23 @@ jobs:
       - run: .github/scripts/scanning/kubescape-scan.sh
         continue-on-error: true
 
+
+      - name: Run Kubescape scan
+        run: |
+          chmod +x .github/scripts/scanning/kubescape-scan.sh
+          .github/scripts/scanning/kubescape-scan.sh
+          echo "Contenu du répertoire :"
+          ls -la .github/reports/
+      
       - name: Send report
         env:
           GMAIL_USER: ${{ secrets.EMAIL_FROM }}
-          GMAIL_PWD: ${{ secrets.EMAIL_PWD }}
+          GMAIL_PASSWORD: ${{ secrets.EMAIL_PWD }}
           REPORT_EMAIL: ${{ secrets.REPORT_TO }}
-        run: python .github/scripts/scanning/send-report.py
+        run: |
+          echo "Répertoire courant : $(pwd)"
+          python .github/scripts/scanning/send-report.py
+  
 
       - name: Set outputs
         id: set-outputs
