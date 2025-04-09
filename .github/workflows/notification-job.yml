@@ -12,6 +12,10 @@ jobs:
     steps:
       - name: Checkout du code
         uses: actions/checkout@v3
+      - name: Rendre les scripts exécutables
+        run: chmod +x .github/scripts/**/*.sh
+        shell: bash
+
 
       - name: Configuration Python
         uses: actions/setup-python@v4
