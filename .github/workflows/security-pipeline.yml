@@ -16,7 +16,7 @@ jobs:
     needs: notifications
     uses: ./.github/workflows/scanning-job.yml
     secrets:
-      REPORT_EMAIL: "benmaktoumferjani@gmail.com"
+      REPORT_EMAIL: ${{ secrets.REPORT_EMAIL }}
 
   validation:
     needs: security-scan
