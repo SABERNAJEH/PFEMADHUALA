@@ -23,8 +23,13 @@ jobs:
 
       - run: pip install -r .github/scripts/notification/requirements.txt
 
+
       - name: Send email
         env:
           GMAIL_USER: ${{ secrets.EMAIL_FROM }}
           GMAIL_PASSWORD: ${{ secrets.EMAIL_PWD }}
-        run: python .github/scripts/notification/send-alert.py "${{ secrets.EMAIL_TO }}"
+          EMAIL_RECIPIENTS: ${{ secrets.EMAIL_TO }}
+        run: |
+          echo "Debug - GMAIL_USER: $GMAIL_USER"
+          echo "Debug - EMAIL_RECIPIENTS: $EMAIL_RECIPIENTS"
+          python .github/scripts/notification/send-alert.py "$EMAIL_RECIPIENTS"
