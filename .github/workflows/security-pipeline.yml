@@ -4,8 +4,7 @@ on:
     branches: [ master ]
   pull_request:
     branches: [ master ]
-env:
-  REPORT_EMAIL: "benmaktoumferjani@gmail.com"
+
 
 jobs:
   notifications:
@@ -17,7 +16,7 @@ jobs:
     needs: notifications
     uses: ./.github/workflows/scanning-job.yml
     secrets:
-      REPORT_EMAIL: ${{ secrets.REPORT_EMAIL }}
+      REPORT_EMAIL: "benmaktoumferjani@gmail.com"
 
   validation:
     needs: security-scan
