@@ -1,5 +1,4 @@
 name: 🛡️ Kubernetes Security Pipeline
-
 on:
   push:
     branches: [ master ]
@@ -23,3 +22,5 @@ jobs:
     uses: ./.github/workflows/validation-job.yml
     with:
       scan-results: ${{ needs.security-scan.outputs.scan-results }}
+      
+#ahleen w xahliin hela hela ya gomar
