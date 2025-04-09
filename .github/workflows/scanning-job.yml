@@ -1,0 +1,33 @@
+name: 🔍 Scan de Sécurité Kubernetes
+
+on:
+  workflow_call:
+
+jobs:
+  security-scan:
+    runs-on: ubuntu-latest
+    outputs:
+      scan-results: ${{ steps.set-outputs.outputs.results }}
+
+    steps:
+      - name: Checkout du code
+        uses: actions/checkout@v3
+
+      - name: Installation de Kubescape
+        run: |
+          curl -s https://raw.githubusercontent.com/kubescape/kubescape/master/install.sh | /bin/bash
+          echo "$HOME/.kubescape" >> $GITHUB_PATH
+
+      - name: Exécution du scan Kubescape
+        run: .github/scripts/scanning/kubescape-scan.sh
+
+      - name: Envoi du rapport
+        env:
+          GMAIL_USER: ${{ secrets.GMAIL_USERNAME }}
+          GMAIL_PASSWORD: ${{ secrets.GMAIL_PASSWORD }}
+          REPORT_EMAIL: ${{ secrets.REPORT_EMAIL }}
+        run: python .github/scripts/scanning/send-report.py
+
+      - name: Définition des résultats
+        id: set-outputs
+        run: echo "results=$(cat scan-results.json | jq -c)" >> $GITHUB_OUTPUT
