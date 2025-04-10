@@ -1,24 +1,23 @@
-#!/bin/bash
+name: ✅ Validation et Déploiement
 
-echo "🔎 Validation des manifests Kubernetes..."
+on:
+  workflow_call:
+    inputs:
+      scan-results:
+        required: true
+        type: string
 
-# Installation de kubeval si nécessaire
-if ! command -v kubeval &> /dev/null
-then
-    echo "🛠 Installation de kubeval..."
-    wget https://github.com/instrumenta/kubeval/releases/latest/download/kubeval-linux-amd64.tar.gz
-    tar xf kubeval-linux-amd64.tar.gz
-    sudo mv kubeval /usr/local/bin
-fi
+jobs:
+  validate-and-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Kubernetes tools
+        run: |
+          curl -LO https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/
 
-# Validation des fichiers YAML
-for file in $(find . -name "*.yaml" -o -name "*.yml"); do
-    echo "🔍 Validation de $file"
-    kubeval --strict $file
-    if [ $? -ne 0 ]; then
-        echo "❌ Échec de validation pour $file"
-        exit 1
-    fi
-done
-
-echo "✅ Tous les manifests sont valides"
+      - name: Run dynamic scan
+        run: .github/scripts/validation/deploy-scan.sh
