@@ -40,14 +40,13 @@ jobs:
             || echo "Scan completed with exit code $?"
           
           # Format JSON output for readability
-          [ -f "${{ env.CLUSTER_SCAN_OUTPUT }}" ] && \
+            [ -f "${{ env.CLUSTER_SCAN_OUTPUT }}" ] && \
             jq '.' "${{ env.CLUSTER_SCAN_OUTPUT }}" > temp.json && \
             mv temp.json "${{ env.CLUSTER_SCAN_OUTPUT }}"
           
           # Extract critical findings count
-          CRITICAL_FINDINGS=$(jq '.summary_details.numberOfCriticalSeverity' "${{ env.CLUSTER_SCAN_OUTPUT }}")
-          echo "CRITICAL_FINDINGS=$CRITICAL_FINDINGS" >> $GITHUB_ENV
-
+            CRITICAL_FINDINGS=$(jq '.summary_details.numberOfCriticalSeverity' "${{ env.CLUSTER_SCAN_OUTPUT }}")
+            echo "CRITICAL_FINDINGS=$CRITICAL_FINDINGS" >> $GITHUB_ENV
       - name: Installer Trivy (avec checksum de vérification)
         run: |
           curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | \
