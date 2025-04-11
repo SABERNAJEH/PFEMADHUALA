@@ -14,7 +14,6 @@ jobs:
   security-scan:
     runs-on: ubuntu-latest
     env:
-      KUBESCAPE_PATH: "$HOME/.kubescape/bin"
       REPORT_DIR: "$GITHUB_WORKSPACE/.github/reports"
     
     steps:
@@ -25,11 +24,13 @@ jobs:
           mkdir -p "$REPORT_DIR"
           chmod +x "$GITHUB_WORKSPACE"/.github/scripts/scanning/*.sh
 
-      - name: Installer Kubescape
+      - name: Installer Kubescape (méthode fiable)
         run: |
-          curl -s https://raw.githubusercontent.com/kubescape/kubescape/master/install.sh | bash
-          echo "$KUBESCAPE_PATH" >> $GITHUB_PATH
+          # Méthode alternative avec vérification explicite du PATH
+          curl -sL https://raw.githubusercontent.com/kubescape/kubescape/master/install.sh | bash -s -- -b /usr/local/bin
           kubescape version
+          echo "Vérification du chemin :"
+          which kubescape
 
       - name: Lancer le scan Kubescape
         run: |
