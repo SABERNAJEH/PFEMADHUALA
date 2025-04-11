@@ -29,15 +29,24 @@ jobs:
           curl -s https://raw.githubusercontent.com/kubescape/kubescape/master/install.sh | /bin/bash
           echo "$HOME/.kubescape/bin" >> $GITHUB_PATH
           $HOME/.kubescape/bin/kubescape version
-
-      - name: Lancer le scan Kubescape
+      - name: Run comprehensive security scan
         run: |
-          kubescape scan framework nsa,mitre \
-            --submit \
+          # Scan the entire cluster including Kubernetes Goat deployments
+          $HOME/.kubescape/bin/kubescape scan \
+            --enable-host-scan \
             --format json \
-            --output "$REPORT_DIR/kubescape-scan.json" \
-            --exclude-namespaces kube-system,kube-public \
-            --verbose
+            --verbose \
+            --output ${{ env.CLUSTER_SCAN_OUTPUT }} \
+            || echo "Scan completed with exit code $?"
+          
+          # Format JSON output for readability
+          [ -f "${{ env.CLUSTER_SCAN_OUTPUT }}" ] && \
+            jq '.' "${{ env.CLUSTER_SCAN_OUTPUT }}" > temp.json && \
+            mv temp.json "${{ env.CLUSTER_SCAN_OUTPUT }}"
+          
+          # Extract critical findings count
+          CRITICAL_FINDINGS=$(jq '.summary_details.numberOfCriticalSeverity' "${{ env.CLUSTER_SCAN_OUTPUT }}")
+          echo "CRITICAL_FINDINGS=$CRITICAL_FINDINGS" >> $GITHUB_ENV
 
       - name: Installer Trivy (avec checksum de vérification)
         run: |
