@@ -1,24 +1,13 @@
 #!/bin/bash
-set -eo pipefail  # Gestion des erreurs
+set -eo pipefail
 
-# Définir les chemins
-REPORT_DIR="${GITHUB_WORKSPACE}/.github/reports"
-OUTPUT_FILE="${REPORT_DIR}/scan-results.json"
-TEMP_FILE="${REPORT_DIR}/temp-scan.json"
+REPORT_DIR="$GITHUB_WORKSPACE/.github/reports"
+OUTPUT_FILE="$REPORT_DIR/kubescape-scan.json"
 
-# Créer le dossier de rapports
-mkdir -p "$REPORT_DIR"
-
-# Lancer le scan avec Kubescape et formater le JSON
-kubescape scan "$GITHUB_WORKSPACE" \
+echo "🔍 Running Kubescape cluster scan..."
+kubescape scan --submit --enable-host-scan \
   --format json \
-  --output "$TEMP_FILE" \
-  --exclude-namespaces kube-system,kube-public \
-  --verbose
+  --output "$OUTPUT_FILE" \
+  --exclude-namespaces kube-system,kube-public
 
-# Structurer le JSON avec jq (indentation + tri)
-jq '.' "$TEMP_FILE" > "$OUTPUT_FILE" && rm "$TEMP_FILE"
-
-# Vérifier la sortie
-echo "✅ Rapport généré : $OUTPUT_FILE"
-jq -r '.summary | "Résumé : \(.passed) contrôles passés, \(.failed) échoués"' "$OUTPUT_FILE"
+echo "✅ Kubescape report saved to $OUTPUT_FILE"
