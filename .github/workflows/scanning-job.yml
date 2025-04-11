@@ -1,78 +1,80 @@
-name: 🔍 Analyse de Sécurité Kubernetes
+name: 🔍 Analyse de Sécurité Kubernetes Complète
 
 on:
-  workflow_call:
-    secrets:
-      EMAIL_FROM:
-        required: true
-      EMAIL_PWD:
-        required: true
-      REPORT_TO:
-        required: true
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * *'
+
+env:
+  REPORT_DIR: "$GITHUB_WORKSPACE/.github/reports"
+  KUBESCAPE_REPORT: "$GITHUB_WORKSPACE/.github/reports/kubescape-scan.json"
+  TRIVY_REPORT: "$GITHUB_WORKSPACE/.github/reports/trivy-scan.json"
 
 jobs:
   security-scan:
     runs-on: ubuntu-latest
-    env:
-      REPORT_DIR: "$GITHUB_WORKSPACE/.github/reports"
-      CLUSTER_SCAN_OUTPUT: "$GITHUB_WORKSPACE/.github/reports/kubescape-scan.json"
-    
+    permissions:
+      contents: read
+      security-events: write
+
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Configurer l'environnement
         run: |
           mkdir -p "$REPORT_DIR"
-          chmod +x "$GITHUB_WORKSPACE"/.github/scripts/scanning/*.sh
+          sudo apt-get update
+          sudo apt-get install -y jq curl python3-pip
+          pip install pyyaml
 
-      - name: Installer Kubescape (Méthode officielle)
+      - name: Configurer l'accès Kubernetes
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBE_CONFIG }}" > ~/.kube/config
+          chmod 600 ~/.kube/config
+          kubectl cluster-info
+
+      - name: Exécuter Kubescape
         run: |
           curl -s https://raw.githubusercontent.com/kubescape/kubescape/master/install.sh | /bin/bash
-          echo "$HOME/.kubescape/bin" >> $GITHUB_PATH
-          $HOME/.kubescape/bin/kubescape version
-
-      - name: Run comprehensive security scan
-        run: |
-          # Vérifier que le répertoire de sortie existe
-          mkdir -p "$(dirname "$CLUSTER_SCAN_OUTPUT")"
           
-          # Scan avec gestion robuste des erreurs
+          # Toujours générer un fichier de sortie valide
           $HOME/.kubescape/bin/kubescape scan framework nsa,mitre \
-            --enable-host-scan \
             --format json \
-            --output "$CLUSTER_SCAN_OUTPUT" \
-            --verbose || true
+            --output "$KUBESCAPE_REPORT" \
+            || echo '{"status":"completed", "summary":{"passed":0,"failed":0},"message":"Scan failed"}' > "$KUBESCAPE_REPORT"
           
-          # Vérifier que le fichier de sortie existe avant de le traiter
-          if [ -f "$CLUSTER_SCAN_OUTPUT" ]; then
-            # Formater le JSON pour une meilleure lisibilité
-            jq '.' "$CLUSTER_SCAN_OUTPUT" > temp.json && mv temp.json "$CLUSTER_SCAN_OUTPUT"
-            
-            # Extraire les résultats critiques
-            CRITICAL_FINDINGS=$(jq '.summary_details.numberOfCriticalSeverity // 0' "$CLUSTER_SCAN_OUTPUT")
-            echo "CRITICAL_FINDINGS=$CRITICAL_FINDINGS" >> $GITHUB_ENV
-          else
-            echo "::warning::Aucun rapport Kubescape généré"
-            echo "CRITICAL_FINDINGS=0" >> $GITHUB_ENV
-          fi
+          # Vérifier et formater le JSON
+          jq '.' "$KUBESCAPE_REPORT" > temp.json && mv temp.json "$KUBESCAPE_REPORT" || true
 
-      - name: Installer Trivy
+      - name: Exécuter Trivy
         run: |
-          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | \
-            sh -s -- -b /usr/local/bin v0.50.0
-
-      - name: Lancer le scan Trivy
-        run: |
-          trivy k8s --all-namespaces \
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+          
+          # Toujours générer un fichier de sortie valide
+          trivy k8s --report summary all \
             --format json \
-            --output "$REPORT_DIR/trivy-scan.json" \
-            --timeout 15m \
-            --security-checks vuln,config,secret || echo "Trivy scan completed with warnings"
+            --output "$TRIVY_REPORT" \
+            --scanners vuln,misconfig,secret \
+            --timeout 20m \
+            || echo '{"status":"completed", "Results":[],"message":"Scan failed"}' > "$TRIVY_REPORT"
+          
+          # Vérifier et formater le JSON
+          jq '.' "$TRIVY_REPORT" > temp.json && mv temp.json "$TRIVY_REPORT" || true
 
-      - name: Envoyer le rapport
+      - name: Vérifier les rapports
+        run: |
+          echo "=== Fichiers générés ==="
+          ls -la "$REPORT_DIR"
+          echo "=== Taille des rapports ==="
+          wc -c "$KUBESCAPE_REPORT" "$TRIVY_REPORT"
+
+      - name: Envoyer le rapport par email
         env:
           GMAIL_USER: ${{ secrets.EMAIL_FROM }}
           GMAIL_PASSWORD: ${{ secrets.EMAIL_PWD }}
           REPORT_EMAIL: ${{ secrets.REPORT_TO }}
+          KUBESCAPE_REPORT_PATH: "${{ env.KUBESCAPE_REPORT }}"
+          TRIVY_REPORT_PATH: "${{ env.TRIVY_REPORT }}"
         run: |
-          python "$GITHUB_WORKSPACE/.github/scripts/scanning/send-report.py"
+          python3 "$GITHUB_WORKSPACE/.github/scripts/send_report.py"
