@@ -1,4 +1,4 @@
-name: 🔍 Analyse de Sécurité
+name: 🔍 Scan de Sécurité
 
 on:
   workflow_call:
@@ -19,51 +19,41 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - name: Configurer l'environnement
+      - name: Installer Kubescape (Méthode Certifiée)
         run: |
-          mkdir -p "$REPORT_DIR"
-          chmod +x "$GITHUB_WORKSPACE"/.github/scripts/scanning/*.sh
-
-      - name: Installer Kubescape (Méthode Officielle)
-        run: |
-          # 1. Installer la dépendance requise
-          sudo apt-get update && sudo apt-get install -y curl
+          # 1. Télécharger le binaire statique (compatible avec tous les Linux)
+          wget -q https://github.com/kubescape/kubescape/releases/latest/download/kubescape-linux-amd64 -O kubescape
           
-          # 2. Téléchargement via le script officiel avec paramètre -b
-          curl -s https://raw.githubusercontent.com/kubescape/kubescape/master/install.sh | bash -s -- -b /usr/local/bin
+          # 2. Installer dans un chemin système
+          chmod +x kubescape
+          sudo mv kubescape /usr/local/bin/
           
-          # 3. Vérification
-          echo "Chemin de kubescape: $(which kubescape)"
-          kubescape version
+          # 3. Vérification imparable
+          /usr/local/bin/kubescape version || (echo "Échec critique : l'installation a échoué" && exit 1)
+          echo "Kubescape installé avec succès à $(which kubescape)"
 
       - name: Lancer le scan Kubescape
         run: |
           kubescape scan --submit --enable-host-scan \
             --format json \
             --output "$REPORT_DIR/kubescape-scan.json" \
-            --exclude-namespaces kube-system,kube-public \
-            --verbose
+            --exclude-namespaces kube-system,kube-public
 
       - name: Installer Trivy
         run: |
-          sudo apt-get update -y
-          sudo apt-get install -y wget apt-transport-https gnupg lsb-release
-          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
-          echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee -a /etc/apt/sources.list.d/trivy.list
-          sudo apt-get update -y
-          sudo apt-get install -y trivy
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
 
       - name: Lancer le scan Trivy
         run: |
           trivy k8s --all-namespaces \
             --format json \
             --output "$REPORT_DIR/trivy-scan.json" \
-            --timeout 10m
+            --timeout 15m
 
-      - name: Envoyer le rapport consolidé
+      - name: Envoyer le rapport
         env:
-          GMAIL_USER: ${{ secrets.EMAIL_FROM }}
-          GMAIL_PASSWORD: ${{ secrets.EMAIL_PWD }}
+          GMAIL_USER: ${{ secrets.GMAIL_USERNAME }}
+          GMAIL_PASSWORD: ${{ secrets.GMAIL_PASSWORD }}
           REPORT_EMAIL: ${{ secrets.REPORT_TO }}
         run: |
           python "$GITHUB_WORKSPACE/.github/scripts/scanning/send-report.py"
