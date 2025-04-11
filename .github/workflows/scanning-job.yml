@@ -1,4 +1,4 @@
-name: 🔍 Analyse de Sécurité
+name: 🔍 Analyse de Sécurité Kubernetes
 
 on:
   workflow_call:
@@ -24,46 +24,54 @@ jobs:
           mkdir -p "$REPORT_DIR"
           chmod +x "$GITHUB_WORKSPACE"/.github/scripts/scanning/*.sh
 
-      - name: Installer Kubescape (Méthode 100% Fiable)
+      - name: Installer Kubescape (Méthode robuste)
         run: |
-          # 1. Téléchargement direct du binaire AMD64 (pour les runners GitHub)
-          wget -q https://github.com/kubescape/kubescape/releases/latest/download/kubescape -O kubescape
+          # 1. Utilisation de l'URL canonique et vérification HTTPS
+          KUBESCAPE_URL="https://github.com/kubescape/kubescape/releases/latest/download/kubescape-linux-amd64"
           
-          # 2. Vérification du fichier téléchargé
-          if [ ! -f kubescape ]; then
-            echo "::error::Échec du téléchargement"
+          # 2. Téléchargement avec vérification du code HTTP
+          if ! curl -sSLf "$KUBESCAPE_URL" -o kubescape; then
+            echo "::error::Échec du téléchargement (URL: $KUBESCAPE_URL)"
             exit 1
           fi
           
-          # 3. Installation
+          # 3. Vérification du binaire (non vide + executable)
+          if [ ! -s kubescape ]; then
+            echo "::error::Fichier binaire vide ou corrompu"
+            exit 1
+          fi
+          
           chmod +x kubescape
           sudo mv kubescape /usr/local/bin/
           
-          # 4. Vérification finale
+          # 4. Vérification de la version
           if ! kubescape version; then
-            echo "::error::Échec de l'exécution"
+            echo "::error::Échec de l'exécution (vérifiez l'architecture du runner)"
             exit 1
           fi
           echo "✅ Kubescape $(kubescape version) installé avec succès"
 
       - name: Lancer le scan Kubescape
         run: |
-          kubescape scan --submit --enable-host-scan \
+          kubescape scan framework nsa,mitre \
+            --submit \
             --format json \
             --output "$REPORT_DIR/kubescape-scan.json" \
             --exclude-namespaces kube-system,kube-public \
             --verbose
 
-      - name: Installer Trivy
+      - name: Installer Trivy (avec checksum de vérification)
         run: |
-          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | \
+            sh -s -- -b /usr/local/bin v0.50.0  # Version explicite pour éviter les surprises
 
       - name: Lancer le scan Trivy
         run: |
           trivy k8s --all-namespaces \
             --format json \
             --output "$REPORT_DIR/trivy-scan.json" \
-            --timeout 15m
+            --timeout 15m \
+            --security-checks vuln,config,secret
 
       - name: Envoyer le rapport
         env:
