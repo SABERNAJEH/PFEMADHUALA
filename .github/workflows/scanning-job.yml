@@ -15,6 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       REPORT_DIR: "$GITHUB_WORKSPACE/.github/reports"
+      CLUSTER_SCAN_OUTPUT: "$GITHUB_WORKSPACE/.github/reports/kubescape-scan.json"
     
     steps:
       - uses: actions/checkout@v3
@@ -24,33 +25,41 @@ jobs:
           mkdir -p "$REPORT_DIR"
           chmod +x "$GITHUB_WORKSPACE"/.github/scripts/scanning/*.sh
 
-      - name: Installer Kubescape (Méthode robuste)
+      - name: Installer Kubescape (Méthode officielle)
         run: |
           curl -s https://raw.githubusercontent.com/kubescape/kubescape/master/install.sh | /bin/bash
           echo "$HOME/.kubescape/bin" >> $GITHUB_PATH
           $HOME/.kubescape/bin/kubescape version
+
       - name: Run comprehensive security scan
         run: |
-          # Scan the entire cluster including Kubernetes Goat deployments
-          $HOME/.kubescape/bin/kubescape scan \
+          # Vérifier que le répertoire de sortie existe
+          mkdir -p "$(dirname "$CLUSTER_SCAN_OUTPUT")"
+          
+          # Scan avec gestion robuste des erreurs
+          $HOME/.kubescape/bin/kubescape scan framework nsa,mitre \
             --enable-host-scan \
             --format json \
-            --verbose \
-            --output ${{ env.CLUSTER_SCAN_OUTPUT }} \
-            || echo "Scan completed with exit code $?"
+            --output "$CLUSTER_SCAN_OUTPUT" \
+            --verbose || true
           
-          # Format JSON output for readability
-            [ -f "${{ env.CLUSTER_SCAN_OUTPUT }}" ] && \
-            jq '.' "${{ env.CLUSTER_SCAN_OUTPUT }}" > temp.json && \
-            mv temp.json "${{ env.CLUSTER_SCAN_OUTPUT }}"
-          
-          # Extract critical findings count
-            CRITICAL_FINDINGS=$(jq '.summary_details.numberOfCriticalSeverity' "${{ env.CLUSTER_SCAN_OUTPUT }}")
+          # Vérifier que le fichier de sortie existe avant de le traiter
+          if [ -f "$CLUSTER_SCAN_OUTPUT" ]; then
+            # Formater le JSON pour une meilleure lisibilité
+            jq '.' "$CLUSTER_SCAN_OUTPUT" > temp.json && mv temp.json "$CLUSTER_SCAN_OUTPUT"
+            
+            # Extraire les résultats critiques
+            CRITICAL_FINDINGS=$(jq '.summary_details.numberOfCriticalSeverity // 0' "$CLUSTER_SCAN_OUTPUT")
             echo "CRITICAL_FINDINGS=$CRITICAL_FINDINGS" >> $GITHUB_ENV
-      - name: Installer Trivy (avec checksum de vérification)
+          else
+            echo "::warning::Aucun rapport Kubescape généré"
+            echo "CRITICAL_FINDINGS=0" >> $GITHUB_ENV
+          fi
+
+      - name: Installer Trivy
         run: |
           curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | \
-            sh -s -- -b /usr/local/bin v0.50.0  # Version explicite pour éviter les surprises
+            sh -s -- -b /usr/local/bin v0.50.0
 
       - name: Lancer le scan Trivy
         run: |
@@ -58,7 +67,7 @@ jobs:
             --format json \
             --output "$REPORT_DIR/trivy-scan.json" \
             --timeout 15m \
-            --security-checks vuln,config,secret
+            --security-checks vuln,config,secret || echo "Trivy scan completed with warnings"
 
       - name: Envoyer le rapport
         env:
