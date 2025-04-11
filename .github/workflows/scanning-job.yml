@@ -1,4 +1,4 @@
-name: 🔍 Scan de Sécurité
+name: 🔍 Analyse de Sécurité
 
 on:
   workflow_call:
@@ -9,34 +9,56 @@ on:
         required: true
       REPORT_TO:
         required: true
+
 jobs:
   security-scan:
     runs-on: ubuntu-latest
+    env:
+      KUBESCAPE_PATH: "$HOME/.kubescape/bin"
+      REPORT_DIR: "$GITHUB_WORKSPACE/.github/reports"
+    
     steps:
       - uses: actions/checkout@v3
 
-      - name: Install Kubescape
+      - name: Configurer l'environnement
+        run: |
+          mkdir -p "$REPORT_DIR"
+          chmod +x "$GITHUB_WORKSPACE"/.github/scripts/scanning/*.sh
+
+      - name: Installer Kubescape
         run: |
           curl -s https://raw.githubusercontent.com/kubescape/kubescape/master/install.sh | bash
-          echo "$HOME/.kubescape/bin" >> $GITHUB_PATH
+          echo "$KUBESCAPE_PATH" >> $GITHUB_PATH
           kubescape version
 
-      - name: Run Kubescape scan
-        run: kubescape scan --submit --enable-host-scan --format json --output .github/reports/kubescape-scan.json
-      - name: Install Trivy
+      - name: Lancer le scan Kubescape
         run: |
+          kubescape scan --submit --enable-host-scan \
+            --format json \
+            --output "$REPORT_DIR/kubescape-scan.json" \
+            --exclude-namespaces kube-system,kube-public \
+            --verbose
+
+      - name: Installer Trivy
+        run: |
+          sudo apt-get update -y
           sudo apt-get install -y wget apt-transport-https gnupg lsb-release
           wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
           echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee -a /etc/apt/sources.list.d/trivy.list
-          sudo apt-get update
+          sudo apt-get update -y
           sudo apt-get install -y trivy
 
-      - name: Run Trivy scan
-        run: .github/scripts/scanning/trivy-scan.sh
+      - name: Lancer le scan Trivy
+        run: |
+          trivy k8s --all-namespaces \
+            --format json \
+            --output "$REPORT_DIR/trivy-scan.json" \
+            --timeout 10m
 
-      - name: Send consolidated report
+      - name: Envoyer le rapport consolidé
         env:
           GMAIL_USER: ${{ secrets.EMAIL_FROM }}
           GMAIL_PASSWORD: ${{ secrets.EMAIL_PWD }}
           REPORT_EMAIL: ${{ secrets.REPORT_TO }}
-        run: python .github/scripts/scanning/send-report.py
+        run: |
+          python "$GITHUB_WORKSPACE/.github/scripts/scanning/send-report.py"
