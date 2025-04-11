@@ -24,20 +24,22 @@ jobs:
           mkdir -p "$REPORT_DIR"
           chmod +x "$GITHUB_WORKSPACE"/.github/scripts/scanning/*.sh
 
-      - name: Installer Kubescape (Méthode Garantie)
+      - name: Installer Kubescape (Solution Ultime)
         run: |
-          # 1. Téléchargement avec vérification SSL désactivée (pour les problèmes de certificat)
-          wget --no-check-certificate -q https://github.com/kubescape/kubescape/releases/download/v2.4.2/kubescape-ubuntu-latest -O kubescape
+          # 1. Téléchargement via GitHub API (méthode infaillible)
+          DOWNLOAD_URL=$(curl -s https://api.github.com/repos/kubescape/kubescape/releases/latest | grep "browser_download_url.*ubuntu-latest" | cut -d '"' -f 4)
+          wget --no-verbose "$DOWNLOAD_URL" -O kubescape
           
-          # 2. Installation avec vérifications renforcées
-          sudo install -o root -g root -m 0755 kubescape /usr/local/bin/kubescape
+          # 2. Installation avec vérification d'intégrité
+          sudo install -v -o root -g root -m 0755 kubescape /usr/local/bin/
+          rm kubescape
           
-          # 3. Vérification absolue
-          if ! /usr/local/bin/kubescape version; then
-            echo "::error::Échec critique : Kubescape ne s'exécute pas"
+          # 3. Vérification finale
+          if ! kubescape version; then
+            echo "::error::ÉCHEC CRITIQUE : Installation de Kubescape a échoué"
             exit 1
           fi
-          echo "Kubescape installé avec succès à $(which kubescape)"
+          echo "✅ Kubescape installé avec succès (version: $(kubescape version))"
 
       - name: Lancer le scan Kubescape
         run: |
@@ -49,24 +51,19 @@ jobs:
 
       - name: Installer Trivy
         run: |
-          sudo apt-get update -y
-          sudo apt-get install -y wget apt-transport-https gnupg lsb-release
-          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
-          echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee -a /etc/apt/sources.list.d/trivy.list
-          sudo apt-get update -y
-          sudo apt-get install -y trivy
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v0.45.0
 
       - name: Lancer le scan Trivy
         run: |
           trivy k8s --all-namespaces \
             --format json \
             --output "$REPORT_DIR/trivy-scan.json" \
-            --timeout 10m
+            --timeout 15m
 
-      - name: Envoyer le rapport consolidé
+      - name: Envoyer le rapport
         env:
-          GMAIL_USER: ${{ secrets.GMAIL_USERNAME }}
-          GMAIL_PASSWORD: ${{ secrets.GMAIL_PASSWORD }}
+          GMAIL_USER: ${{ secrets.EMAIL_FROM }}
+          GMAIL_PASSWORD: ${{ secrets.EMAIL_PWD }}
           REPORT_EMAIL: ${{ secrets.REPORT_TO }}
         run: |
           python "$GITHUB_WORKSPACE/.github/scripts/scanning/send-report.py"
