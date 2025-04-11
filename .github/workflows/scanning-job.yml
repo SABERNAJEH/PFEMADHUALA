@@ -24,22 +24,27 @@ jobs:
           mkdir -p "$REPORT_DIR"
           chmod +x "$GITHUB_WORKSPACE"/.github/scripts/scanning/*.sh
 
-      - name: Installer Kubescape (Solution Ultime)
+      - name: Installer Kubescape (Méthode 100% Fiable)
         run: |
-          # 1. Téléchargement via GitHub API (méthode infaillible)
-          DOWNLOAD_URL=$(curl -s https://api.github.com/repos/kubescape/kubescape/releases/latest | grep "browser_download_url.*ubuntu-latest" | cut -d '"' -f 4)
-          wget --no-verbose "$DOWNLOAD_URL" -O kubescape
+          # 1. Téléchargement direct du binaire AMD64 (pour les runners GitHub)
+          wget -q https://github.com/kubescape/kubescape/releases/latest/download/kubescape -O kubescape
           
-          # 2. Installation avec vérification d'intégrité
-          sudo install -v -o root -g root -m 0755 kubescape /usr/local/bin/
-          rm kubescape
-          
-          # 3. Vérification finale
-          if ! kubescape version; then
-            echo "::error::ÉCHEC CRITIQUE : Installation de Kubescape a échoué"
+          # 2. Vérification du fichier téléchargé
+          if [ ! -f kubescape ]; then
+            echo "::error::Échec du téléchargement"
             exit 1
           fi
-          echo "✅ Kubescape installé avec succès (version: $(kubescape version))"
+          
+          # 3. Installation
+          chmod +x kubescape
+          sudo mv kubescape /usr/local/bin/
+          
+          # 4. Vérification finale
+          if ! kubescape version; then
+            echo "::error::Échec de l'exécution"
+            exit 1
+          fi
+          echo "✅ Kubescape $(kubescape version) installé avec succès"
 
       - name: Lancer le scan Kubescape
         run: |
@@ -51,7 +56,7 @@ jobs:
 
       - name: Installer Trivy
         run: |
-          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v0.45.0
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
 
       - name: Lancer le scan Trivy
         run: |
