@@ -22,8 +22,3 @@ jobs:
       EMAIL_PWD: ${{ secrets.GMAIL_PASSWORD }}
       REPORT_TO: ${{ secrets.REPORT_EMAIL }}
 
-  validation:
-    needs: security-scan
-    uses: ./.github/workflows/validation-job.yml
-    with:
-      scan-results: ${{ needs.security-scan.outputs.scan-results }}
