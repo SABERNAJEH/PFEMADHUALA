@@ -24,13 +24,19 @@ jobs:
           mkdir -p "$REPORT_DIR"
           chmod +x "$GITHUB_WORKSPACE"/.github/scripts/scanning/*.sh
 
-      - name: Installer Kubescape (méthode fiable)
+      - name: Installer Kubescape (Solution Garantie)
         run: |
-          # Méthode alternative avec vérification explicite du PATH
-          curl -sL https://raw.githubusercontent.com/kubescape/kubescape/master/install.sh | bash -s -- -b /usr/local/bin
+          # 1. Téléchargement direct du binaire (alternative au script d'installation)
+          KUBESCAPE_VERSION="v2.4.2"
+          sudo curl -Lo /usr/local/bin/kubescape \
+            "https://github.com/kubescape/kubescape/releases/download/${KUBESCAPE_VERSION}/kubescape-ubuntu-latest"
+          
+          # 2. Rendre le binaire exécutable
+          sudo chmod +x /usr/local/bin/kubescape
+          
+          # 3. Vérification
           kubescape version
-          echo "Vérification du chemin :"
-          which kubescape
+          echo "Chemin d'installation : $(which kubescape)"
 
       - name: Lancer le scan Kubescape
         run: |
