@@ -26,30 +26,9 @@ jobs:
 
       - name: Installer Kubescape (Méthode robuste)
         run: |
-          # 1. Utilisation de l'URL canonique et vérification HTTPS
-          KUBESCAPE_URL="https://github.com/kubescape/kubescape/releases/latest/download/kubescape-linux-amd64"
-          
-          # 2. Téléchargement avec vérification du code HTTP
-          if ! curl -sSLf "$KUBESCAPE_URL" -o kubescape; then
-            echo "::error::Échec du téléchargement (URL: $KUBESCAPE_URL)"
-            exit 1
-          fi
-          
-          # 3. Vérification du binaire (non vide + executable)
-          if [ ! -s kubescape ]; then
-            echo "::error::Fichier binaire vide ou corrompu"
-            exit 1
-          fi
-          
-          chmod +x kubescape
-          sudo mv kubescape /usr/local/bin/
-          
-          # 4. Vérification de la version
-          if ! kubescape version; then
-            echo "::error::Échec de l'exécution (vérifiez l'architecture du runner)"
-            exit 1
-          fi
-          echo "✅ Kubescape $(kubescape version) installé avec succès"
+          curl -s https://raw.githubusercontent.com/kubescape/kubescape/master/install.sh | /bin/bash
+          echo "$HOME/.kubescape/bin" >> $GITHUB_PATH
+          $HOME/.kubescape/bin/kubescape version
 
       - name: Lancer le scan Kubescape
         run: |
