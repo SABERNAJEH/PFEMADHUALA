@@ -9,26 +9,20 @@ on:
         required: true
       REPORT_TO:
         required: true
-
 jobs:
   security-scan:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
 
-      - name: Setup environment
-        run: |
-          mkdir -p .github/reports
-          chmod +x .github/scripts/scanning/*.sh
-
       - name: Install Kubescape
         run: |
           curl -s https://raw.githubusercontent.com/kubescape/kubescape/master/install.sh | bash
+          echo "$HOME/.kubescape/bin" >> $GITHUB_PATH
           kubescape version
 
       - name: Run Kubescape scan
-        run: .github/scripts/scanning/kubescape-scan.sh
-
+        run: kubescape scan --submit --enable-host-scan --format json --output .github/reports/kubescape-scan.json
       - name: Install Trivy
         run: |
           sudo apt-get install -y wget apt-transport-https gnupg lsb-release
