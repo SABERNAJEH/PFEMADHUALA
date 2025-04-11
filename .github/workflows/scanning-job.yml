@@ -1,4 +1,4 @@
-name: 🔍 Analyse de Sécurité
+name: 🔍 Scan de Sécurité
 
 on:
   workflow_call:
@@ -13,9 +13,6 @@ on:
 jobs:
   security-scan:
     runs-on: ubuntu-latest
-    outputs:
-      scan-results: ${{ steps.set-outputs.outputs.results }}
-    
     steps:
       - uses: actions/checkout@v3
 
@@ -23,23 +20,29 @@ jobs:
         run: |
           mkdir -p .github/reports
           chmod +x .github/scripts/scanning/*.sh
-          echo "$HOME/.kubescape/bin" >> $GITHUB_PATH
 
       - name: Install Kubescape
         run: |
           curl -s https://raw.githubusercontent.com/kubescape/kubescape/master/install.sh | bash
           kubescape version
 
-      - name: Run static scan
+      - name: Run Kubescape scan
         run: .github/scripts/scanning/kubescape-scan.sh
 
-      - name: Send report
+      - name: Install Trivy
+        run: |
+          sudo apt-get install -y wget apt-transport-https gnupg lsb-release
+          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
+          echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee -a /etc/apt/sources.list.d/trivy.list
+          sudo apt-get update
+          sudo apt-get install -y trivy
+
+      - name: Run Trivy scan
+        run: .github/scripts/scanning/trivy-scan.sh
+
+      - name: Send consolidated report
         env:
           GMAIL_USER: ${{ secrets.EMAIL_FROM }}
           GMAIL_PASSWORD: ${{ secrets.EMAIL_PWD }}
           REPORT_EMAIL: ${{ secrets.REPORT_TO }}
         run: python .github/scripts/scanning/send-report.py
-
-      - name: Set outputs
-        id: set-outputs
-        run: echo "results=$(cat .github/reports/scan-results.json | jq -c)" >> $GITHUB_OUTPUT
