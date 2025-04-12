@@ -25,37 +25,61 @@ jobs:
         run: |
           curl -s https://raw.githubusercontent.com/kubescape/kubescape/master/install.sh | bash
           kubescape version
+          echo "Version installée: $(kubescape version)"
 
-      - name: Find Kubernetes manifests
+      - name: Find and verify Kubernetes manifests
         id: find-manifests
         run: |
+          # Trouver tous les fichiers YAML/yml sauf les résultats précédents
           MANIFESTS=$(find . -name '*.yaml' -o -name '*.yml' | grep -v 'scan-results' | tr '\n' ' ')
+          
           if [ -z "$MANIFESTS" ]; then
-            echo "::error::Aucun fichier YAML Kubernetes trouvé"
+            echo "::error::Aucun manifest Kubernetes trouvé!"
+            echo "Liste des fichiers trouvés:"
+            find . -type f | head -20
             exit 1
           fi
+          
+          echo "Fichiers à analyser:"
+          echo "$MANIFESTS" | tr ' ' '\n'
           echo "MANIFESTS=${MANIFESTS}" >> $GITHUB_OUTPUT
-          echo "Fichiers à analyser: ${MANIFESTS}"
 
-      - name: Run Kubescape scan
+      - name: Run Kubescape scan with debug
         run: |
+          echo "Exécution du scan sur: ${{ steps.find-manifests.outputs.MANIFESTS }}"
+          
+          # Exécuter avec debug et capture complète de la sortie
           kubescape scan ${{ steps.find-manifests.outputs.MANIFESTS }} \
             --format json \
-            --output .github/reports/scan-results.json || SCAN_FAILED=$?
+            --output .github/reports/scan-results.json \
+            2>&1 | tee scan-debug.log
+          
+          # Vérifier le contenu du rapport
+          echo "Contenu du rapport:"
+          cat .github/reports/scan-results.json
           
           if [ ! -s ".github/reports/scan-results.json" ]; then
-            echo "::error::Le scan n'a produit aucun résultat"
+            echo "::error::Le rapport est vide!"
+            echo "Logs de debug:"
+            cat scan-debug.log
             exit 1
           fi
 
-      - name: Save report
+      - name: Validate and save report
         run: |
-          jq '.' .github/reports/scan-results.json # Validation JSON
-          cp .github/reports/scan-results.json .github/reports/scan-results-$(date +%Y%m%d-%H%M%S).json
+          # Valider que le JSON est valide
+          jq empty .github/reports/scan-results.json
+          
+          # Sauvegarder avec timestamp
+          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+          cp .github/reports/scan-results.json .github/reports/scan-results-$TIMESTAMP.json
+          echo "Rapport sauvegardé sous: scan-results-$TIMESTAMP.json"
 
       - name: Send report
         env:
           GMAIL_USER: ${{ secrets.EMAIL_FROM }}
           GMAIL_PASSWORD: ${{ secrets.EMAIL_PWD }}
           REPORT_EMAIL: ${{ secrets.REPORT_TO }}
-        run: python .github/scripts/scanning/send-report.py
+        run: |
+          echo "Envoi du rapport..."
+          python .github/scripts/scanning/send-report.py
