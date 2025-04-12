@@ -13,16 +13,12 @@ on:
 jobs:
   security-scan:
     runs-on: ubuntu-latest
-    outputs:
-      scan-results: ${{ steps.set-outputs.outputs.results }}
-    
     steps:
       - uses: actions/checkout@v3
 
       - name: Setup environment
         run: |
           mkdir -p .github/reports
-          chmod +x .github/scripts/scanning/*.sh
           echo "$HOME/.kubescape/bin" >> $GITHUB_PATH
 
       - name: Install Kubescape
@@ -30,44 +26,36 @@ jobs:
           curl -s https://raw.githubusercontent.com/kubescape/kubescape/master/install.sh | bash
           kubescape version
 
-      - name: Run Kubescape scan
-        id: run-scan
+      - name: Find Kubernetes manifests
+        id: find-manifests
         run: |
-          # Créer le répertoire des rapports s'il n'existe pas
-          mkdir -p .github/reports
+          MANIFESTS=$(find . -name '*.yaml' -o -name '*.yml' | grep -v 'scan-results' | tr '\n' ' ')
+          if [ -z "$MANIFESTS" ]; then
+            echo "::error::Aucun fichier YAML Kubernetes trouvé"
+            exit 1
+          fi
+          echo "MANIFESTS=${MANIFESTS}" >> $GITHUB_OUTPUT
+          echo "Fichiers à analyser: ${MANIFESTS}"
+
+      - name: Run Kubescape scan
+        run: |
+          kubescape scan ${{ steps.find-manifests.outputs.MANIFESTS }} \
+            --format json \
+            --output .github/reports/scan-results.json || SCAN_FAILED=$?
           
-          # Exécuter le scan avec gestion des erreurs
-          echo "🔄 Exécution du scan Kubescape..."
-          kubescape scan --format json --output .github/reports/scan-results.json || SCAN_FAILED=$?
-          
-          # Vérifier si le fichier de résultats existe et n'est pas vide
-          if [ -f ".github/reports/scan-results.json" ] && [ -s ".github/reports/scan-results.json" ]; then
-            echo "✅ Scan terminé avec succès"
-            echo "Preview des résultats:"
-            jq '.' .github/reports/scan-results.json | head -n 20
-          else
-            echo "❌ Échec du scan ou résultats vides"
-            echo "{\"error\": \"Scan failed\", \"exit_code\": \"${SCAN_FAILED:-99}\"}" > .github/reports/scan-results.json
+          if [ ! -s ".github/reports/scan-results.json" ]; then
+            echo "::error::Le scan n'a produit aucun résultat"
             exit 1
           fi
 
-      - name: Save permanent report
+      - name: Save report
         run: |
-          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-          cp .github/reports/scan-results.json .github/reports/scan-results-$TIMESTAMP.json
-          echo "📁 Rapport permanent sauvegardé: scan-results-$TIMESTAMP.json"
+          jq '.' .github/reports/scan-results.json # Validation JSON
+          cp .github/reports/scan-results.json .github/reports/scan-results-$(date +%Y%m%d-%H%M%S).json
 
       - name: Send report
-        if: always()
         env:
           GMAIL_USER: ${{ secrets.EMAIL_FROM }}
           GMAIL_PASSWORD: ${{ secrets.EMAIL_PWD }}
           REPORT_EMAIL: ${{ secrets.REPORT_TO }}
-        run: |
-          echo "📧 Envoi du rapport..."
-          python .github/scripts/scanning/send-report.py
-
-      - name: Set outputs
-        id: set-outputs
-        run: |
-          echo "results=$(cat .github/reports/scan-results.json | jq -c -a .)" >> $GITHUB_OUTPUT
+        run: python .github/scripts/scanning/send-report.py
