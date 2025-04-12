@@ -37,7 +37,7 @@ jobs:
         run: |
           # Écrire le rapport dans le fichier en écrasant s'il existe déjà
           cat .github/reports/scan-results.json > .github/reports/scan-results-permanent.json
-          echo "Rapport sauvegardé de façon permanente dans .github/reports/scan-results-permanent.json"
+          echo "Rapport sauvegardé de façon permanente dans .github/reports/scan-results.json"
         
 
       - name: Send report
