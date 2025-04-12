@@ -10,7 +10,7 @@ jobs:
   notifications:
     uses: ./.github/workflows/notification-job.yml
     secrets:
-      EMAIL_TO: "saber.fraj@etudiant-isi.utm.tn,najeh.wchem@etudiant-isi.utm.tn"
+      EMAIL_TO: "saber.fraj@etudiant-isi.utm.tn,najah.wchem@etudiant-isi.utm.tn"
       EMAIL_FROM: ${{ secrets.GMAIL_USERNAME }}
       EMAIL_PWD: ${{ secrets.GMAIL_PASSWORD }}
 
