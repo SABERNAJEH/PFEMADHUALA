@@ -30,15 +30,27 @@ jobs:
           curl -s https://raw.githubusercontent.com/kubescape/kubescape/master/install.sh | bash
           kubescape version
 
-      - name: Run static scan
-        run: .github/scripts/scanning/kubescape-scan.sh
-
-      - name: Save scan results permanently
+      - name: Run static scan and save results
+        id: run-scan
         run: |
-          # Écrire le rapport dans le fichier en écrasant s'il existe déjà
-          cat .github/reports/scan-results.json > .github/reports/scan-results-permanent.json
-          echo "Rapport sauvegardé de façon permanente dans .github/reports/scan-results.json"
-        
+          # Exécuter le scan et rediriger la sortie vers le fichier
+          .github/scripts/scanning/kubescape-scan.sh > .github/reports/scan-results.json 2>&1
+          
+          # Vérifier que le fichier n'est pas vide
+          if [ ! -s .github/reports/scan-results.json ]; then
+            echo "Le fichier de résultats est vide, le scan a probablement échoué"
+            echo "results={\"error\": \"Scan failed or produced no output\"}" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          
+          # Afficher les premiers caractères pour débogage
+          echo "Preview des résultats:"
+          head -c 100 .github/reports/scan-results.json
+
+      - name: Save permanent copy
+        run: |
+          cp .github/reports/scan-results.json .github/reports/scan-results-$(date +%Y%m%d%H%M%S).json
+          echo "Copie permanente sauvegardée avec timestamp"
 
       - name: Send report
         env:
@@ -49,4 +61,5 @@ jobs:
 
       - name: Set outputs
         id: set-outputs
-        run: echo "results=$(cat .github/reports/scan-results.json | jq -c)" >> $GITHUB_OUTPUT
+        run: |
+          echo "results=$(cat .github/reports/scan-results.json | jq -c -a .)" >> $GITHUB_OUTPUT
