@@ -30,34 +30,42 @@ jobs:
           curl -s https://raw.githubusercontent.com/kubescape/kubescape/master/install.sh | bash
           kubescape version
 
-      - name: Run static scan and save results
+      - name: Run Kubescape scan
         id: run-scan
         run: |
-          # Exécuter le scan et rediriger la sortie vers le fichier
-          .github/scripts/scanning/kubescape-scan.sh > .github/reports/scan-results.json 2>&1
+          # Créer le répertoire des rapports s'il n'existe pas
+          mkdir -p .github/reports
           
-          # Vérifier que le fichier n'est pas vide
-          if [ ! -s .github/reports/scan-results.json ]; then
-            echo "Le fichier de résultats est vide, le scan a probablement échoué"
-            echo "results={\"error\": \"Scan failed or produced no output\"}" >> $GITHUB_OUTPUT
+          # Exécuter le scan avec gestion des erreurs
+          echo "🔄 Exécution du scan Kubescape..."
+          kubescape scan --format json --output .github/reports/scan-results.json || SCAN_FAILED=$?
+          
+          # Vérifier si le fichier de résultats existe et n'est pas vide
+          if [ -f ".github/reports/scan-results.json" ] && [ -s ".github/reports/scan-results.json" ]; then
+            echo "✅ Scan terminé avec succès"
+            echo "Preview des résultats:"
+            jq '.' .github/reports/scan-results.json | head -n 20
+          else
+            echo "❌ Échec du scan ou résultats vides"
+            echo "{\"error\": \"Scan failed\", \"exit_code\": \"${SCAN_FAILED:-99}\"}" > .github/reports/scan-results.json
             exit 1
           fi
-          
-          # Afficher les premiers caractères pour débogage
-          echo "Preview des résultats:"
-          head -c 100 .github/reports/scan-results.json
 
-      - name: Save permanent copy
+      - name: Save permanent report
         run: |
-          cp .github/reports/scan-results.json .github/reports/scan-results-$(date +%Y%m%d%H%M%S).json
-          echo "Copie permanente sauvegardée avec timestamp"
+          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+          cp .github/reports/scan-results.json .github/reports/scan-results-$TIMESTAMP.json
+          echo "📁 Rapport permanent sauvegardé: scan-results-$TIMESTAMP.json"
 
       - name: Send report
+        if: always()
         env:
           GMAIL_USER: ${{ secrets.EMAIL_FROM }}
           GMAIL_PASSWORD: ${{ secrets.EMAIL_PWD }}
           REPORT_EMAIL: ${{ secrets.REPORT_TO }}
-        run: python .github/scripts/scanning/send-report.py
+        run: |
+          echo "📧 Envoi du rapport..."
+          python .github/scripts/scanning/send-report.py
 
       - name: Set outputs
         id: set-outputs
