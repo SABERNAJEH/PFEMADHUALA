@@ -1,19 +1,17 @@
 .github/
 ├── workflows/
-│   ├── security-pipeline.yml
-│   ├── notification-job.yml
-│   ├── scanning-job.yml
-│   └── validation-job.yml
+│   ├── security-pipeline.yml          # Fichier MODIFIÉ (nouveau job ajouté)
+│   ├── notification-job.yml           # Nouveau fichier
+│   └── validation-job.yml             # MODIFIÉ (ajout vérification vulnérabilités)
 ├── scripts/
-│   ├── notification/
-│   │   ├── send-alert.py
-│   │   └── requirements.txt
-│   ├── scanning/
-│   │   ├── kubescape-scan.sh
-│   │   ├── trivy-scan.sh
-│   │   └── send-report.py
-│   └── validation/
-│       ├── godgo-validate.sh
-│       └── deploy-scan.sh
-
-
+│   ├── security/
+│   │   ├── process_kubescape.py       # Nouveau script principal
+│   │   ├── kubescape_utils.py         # Nouveau (fonctions helper)
+│   │   └── requirements.txt           # Nouveau (dépendances Python)
+│   └── notifications/
+│       ├── send_to_slack.py           # Nouveau
+│       └── send_to_teams.py           # Nouveau
+docs/
+└── security/
+    ├── kubescape_controls.md          # Nouveau (doc des contrôles)
+    └── remediation_playbook.md        # Nouveau (guide de correction)
