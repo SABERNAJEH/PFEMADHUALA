@@ -1,24 +1,43 @@
-name: 🛡️ Kubernetes Security Pipeline
+name: Security Pipeline
 
 on:
   push:
-    branches: [ master ]
-  pull_request:
-    branches: [ master ]
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      full_scan:
+        description: 'Full cluster scan'
+        required: false
+        default: 'false'
 
 jobs:
-  notifications:
-    uses: ./.github/workflows/notification-job.yml
-    secrets:
-      EMAIL_TO: "saber.fraj@etudiant-isi.utm.tn,najah.wchem@etudiant-isi.utm.tn"
-      EMAIL_FROM: ${{ secrets.GMAIL_USERNAME }}
-      EMAIL_PWD: ${{ secrets.GMAIL_PASSWORD }}
-
-  security-scan:
-    needs: notifications
-    uses: ./.github/workflows/scanning-job.yml
-    secrets:
-      EMAIL_FROM: ${{ secrets.GMAIL_USERNAME }}
-      EMAIL_PWD: ${{ secrets.GMAIL_PASSWORD }}
-      REPORT_TO: ${{ secrets.REPORT_EMAIL }}
-
+  scan:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Kubescape
+        run: |
+          curl -s https://raw.githubusercontent.com/kubescape/kubescape/master/install.sh | /bin/bash
+      
+      - name: Run scan
+        run: |
+          kubescape scan \
+            --format json \
+            --output results.json \
+            ${{ inputs.full_scan == 'true' && '--include-namespaces=*' || '' }}
+      
+      - name: Process results
+        run: |
+          pip install -r .github/scripts/security/requirements.txt
+          python .github/scripts/security/process_kubescape.py
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: security-reports
+          path: |
+            results.json
+            security_issues.json
