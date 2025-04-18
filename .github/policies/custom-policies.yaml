@@ -1,0 +1,15 @@
+# Politiques personnalisées pour le cluster
+apiVersion: kubescape.io/v1
+kind: Control
+metadata:
+  name: block-default-namespace
+spec:
+  description: "Prevent deployments in default namespace"
+  severity: medium
+  control:
+    - name: "No resources in default namespace"
+      resources:
+        - kind: Deployment
+      checks:
+        - id: "no-default-namespace"
+          query: "metadata.namespace != 'default'"
