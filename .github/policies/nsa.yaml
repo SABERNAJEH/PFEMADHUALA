@@ -1,0 +1,14 @@
+# Exemple de politique basée sur le framework NSA
+apiVersion: kubescape.io/v1
+kind: Framework
+metadata:
+  name: nsa
+spec:
+  description: "National Security Agency (NSA) Kubernetes Hardening Guide"
+  controls:
+    - name: "Non-root containers"
+      description: "Containers should not run as root"
+      severity: high
+      checks:
+        - id: "no-root-containers"
+          query: "spec.securityContext.runAsNonRoot == true"
