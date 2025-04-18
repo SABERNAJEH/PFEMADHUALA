@@ -1,0 +1,46 @@
+name: Kubescape Minikube Scan & Email Report
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+  schedule:
+    - cron: "0 0 * * *"  # Exécution quotidienne à minuit
+
+jobs:
+  scan-minikube:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Minikube & Start Cluster
+        run: |
+          curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
+          sudo install minikube-linux-amd64 /usr/local/bin/minikube
+          minikube start --driver=docker
+
+      - name: Install Kubescape
+        run: |
+          curl -s https://raw.githubusercontent.com/kubescape/kubescape/master/install.sh | bash
+
+      - name: Run Kubescape Scan (NSA + Custom Policies)
+        run: |
+          kubescape scan --submit --enable-host-scan --framework nsa --output results.json --format json
+          kubescape scan --use-from ./policies/custom-policies.yaml --output custom-results.json --format json
+
+      - name: Send Email Report
+        env:
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
+        run: |
+          python3 ./scripts/send-email.py
+
+      - name: Upload Scan Results as Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: kubescape-results
+          path: |
+            results.json
+            custom-results.json
