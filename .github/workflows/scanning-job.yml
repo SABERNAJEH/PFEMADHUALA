@@ -3,6 +3,8 @@ name: 🔍 Analyse de Sécurité
 on:
   workflow_call:
     secrets:
+      EMAIL_TO:
+        required: true
       EMAIL_FROM:
         required: true
       EMAIL_PWD:
