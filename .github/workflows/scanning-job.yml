@@ -76,7 +76,61 @@ jobs:
           TIMESTAMP=$(date +%Y%m%d-%H%M%S)
           cp .github/reports/scan-results.json .github/reports/scan-results-$TIMESTAMP.json
           echo "Rapport sauvegardé sous: scan-results-$TIMESTAMP.json"
+      #debut modif
+      - name: Process results
+        run: |
+          jq '.summaryDetails | {riskScore: .totalRiskScore, failedControls: .failedControls}' \
+            .github/reports/scan-results.json > .github/reports/metrics.json
 
+      - name: Push metrics to Prometheus
+        run: |
+          python3 <<EOF
+          from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
+          import json, os
+
+          registry = CollectorRegistry()
+          g = Gauge('kubescape_risk_score', 'Security risk score', registry=registry)
+          
+          with open('.github/reports/metrics.json') as f:
+              data = json.load(f)
+          
+          g.set(data['riskScore'])
+          push_to_gateway('${PROMETHEUS_URL}', job='kubescape', registry=registry)
+          EOF
+
+      - name: Update Grafana dashboard
+        env:
+          GRAFANA_API_KEY: ${{ secrets.GRAFANA_API_KEY }}
+        run: |
+          curl -X POST \
+            -H "Authorization: Bearer ${GRAFANA_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -d @.github/reports/metrics.json \
+            "${GRAFANA_URL}/api/dashboards/db"
+
+      - name: Expose Grafana URL
+        run: |
+          echo "::notice::Dashboard Grafana disponible à l'adresse: ${{ steps.scan.outputs.GRAFANA_URL }}"
+          echo "GRAFANA_DASHBOARD_URL=${{ steps.scan.outputs.GRAFANA_URL }}" >> $GITHUB_ENV
+
+      - name: Send notification
+        env:
+          GRAFANA_DASHBOARD_URL: ${{ env.GRAFANA_DASHBOARD_URL }}
+        run: |
+          python3 <<EOF
+          import smtplib, os
+          from email.mime.text import MIMEText
+
+          msg = MIMEText(f"Rapport de sécurité disponible:\n{os.environ['GRAFANA_DASHBOARD_URL']}")
+          msg['Subject'] = 'Rapport de sécurité Kubescape'
+          msg['From'] = os.environ['EMAIL_FROM']
+          msg['To'] = os.environ['EMAIL_TO']
+
+          with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
+              server.login(os.environ['EMAIL_FROM'], os.environ['EMAIL_PWD'])
+              server.send_message(msg)
+          EOF
+          #fin modif
       - name: Send report
         env:
           GMAIL_USER: ${{ secrets.EMAIL_FROM }}
