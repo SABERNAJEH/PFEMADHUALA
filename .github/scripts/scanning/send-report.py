@@ -2,11 +2,11 @@
 import os
 import smtplib
 import json
-import subprocess
 from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.application import MIMEApplication
+import subprocess
 
 def generate_pdf_report(json_path, pdf_path):
     """Génère un PDF via Pandoc à partir des données JSON"""
@@ -15,46 +15,61 @@ def generate_pdf_report(json_path, pdf_path):
     if os.path.exists(pdf_path):
         os.remove(pdf_path)
     
-    # Convertir JSON en Markdown temporaire
-    with open(json_path) as f:
-        data = json.load(f)
-    
-    md_content = f"""
-# Rapport de Sécurité Kubernetes
+    # Charger les données JSON
+    with open(json_path, 'r') as f:
+        try:
+            data = json.load(f)
+        except json.JSONDecodeError:
+            print("❌ Le fichier JSON n'est pas valide.")
+            exit(1)
+
+    summary = data.get('summary', {})
+    results = data.get('results', [{}])[0].get('controls', [])
+
+    md_content = f"""# Rapport de Sécurité Kubernetes
 **Date** : {datetime.now().strftime('%d/%m/%Y %H:%M')}
 
 ## Résumé Global
-- **Score de sécurité** : {data.get('summary', {}).get('score', 'N/A')}%
-- **Risques critiques** : {data.get('summary', {}).get('criticalCount', 0)}
-- **Risques élevés** : {data.get('summary', {}).get('highCount', 0)}
+- **Score de sécurité** : {summary.get('score', 'N/A')}%
+- **Risques critiques** : {summary.get('criticalCount', 0)}
+- **Risques élevés** : {summary.get('highCount', 0)}
+- **Risques moyens** : {summary.get('mediumCount', 0)}
+- **Risques faibles** : {summary.get('lowCount', 0)}
 
 ## Vulnérabilités Détectées
 """
-    
-    for control in data.get('results', [{}])[0].get('controls', []):
-        if control.get('status') != 'passed':
-            status_emoji = "❌" if control['status'] == 'failed' else "⚠️"
-            md_content += f"""
-### {status_emoji} {control['name']} ({control['status'].upper()})
-**Description** : {control.get('description', 'N/A')}  
-**Remédiation** : {control.get('remediation', 'N/A')}  
+
+    for control in results:
+        status = control.get('status', 'unknown')
+        name = control.get('name', 'Inconnue')
+        description = control.get('description', 'Aucune description fournie.')
+        remediation = control.get('remediation', 'Aucune remédiation fournie.')
+
+        md_content += f"""
+### ❌ {name} ({status.upper()})
+**Description** : {description}  
+**Remédiation** : {remediation}
 """
-    
+
     # Écrire le contenu Markdown temporaire
     md_path = os.path.join(os.path.dirname(pdf_path), 'temp_report.md')
     with open(md_path, 'w') as f:
         f.write(md_content)
-    
+
     # Convertir en PDF avec Pandoc
-    subprocess.run([
-        'pandoc', md_path,
-        '-o', pdf_path,
-        '--template=eisvogel',
-        '--pdf-engine=xelatex',
-        '-V', 'mainfont=DejaVu Sans',
-        '-V', 'geometry:margin=2cm'
-    ], check=True)
-    
+    try:
+        subprocess.run([
+            'pandoc', md_path,
+            '-o', pdf_path,
+            '--template=eisvogel',
+            '--pdf-engine=xelatex',
+            '-V', 'mainfont=DejaVu Sans',
+            '-V', 'geometry:margin=2cm'
+        ], check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Erreur lors de la génération du PDF : {e}")
+        exit(1)
+
     # Nettoyer le fichier temporaire
     os.remove(md_path)
 
@@ -62,8 +77,8 @@ def send_reports(json_path, pdf_path):
     """Envoie les rapports par email"""
     
     msg = MIMEMultipart()
-    msg['From'] = os.environ['GMAIL_USER']
-    msg['To'] = os.environ['REPORT_TO']
+    msg['From'] = os.environ.get('GMAIL_USER')
+    msg['To'] = os.environ.get('REPORT_TO')
     msg['Subject'] = f"Rapport de Sécurité Kubernetes - {datetime.now().strftime('%d/%m/%Y')}"
     
     # Corps du message
@@ -87,31 +102,35 @@ def send_reports(json_path, pdf_path):
         (pdf_path, "Rapport_Securite_Kubernetes.pdf"),
         (json_path, "Resultats_Kubescape.json")
     ]:
+        if not os.path.exists(file_path):
+            print(f"⚠️ Fichier manquant : {file_path}")
+            continue
+
         with open(file_path, "rb") as f:
             part = MIMEApplication(f.read(), Name=display_name)
             part['Content-Disposition'] = f'attachment; filename="{display_name}"'
             msg.attach(part)
     
     # Envoi
-    with smtplib.SMTP('smtp.gmail.com', 587) as server:
-        server.starttls()
-        server.login(os.environ['GMAIL_USER'], os.environ['GMAIL_PASSWORD'])
-        server.send_message(msg)
+    try:
+        with smtplib.SMTP('smtp.gmail.com', 587) as server:
+            server.starttls()
+            server.login(msg['From'], os.environ.get('GMAIL_PASSWORD'))
+            server.send_message(msg)
+        print("✅ Rapports générés et envoyés avec succès !")
+    except Exception as e:
+        print(f"❌ Erreur lors de l'envoi : {e}")
+        exit(1)
 
 if __name__ == "__main__":
     try:
-        # Chemins des fichiers
         workspace = os.environ.get('GITHUB_WORKSPACE', '.')
         json_path = os.path.join(workspace, '.github', 'reports', 'scan-results.json')
         pdf_path = os.path.join(workspace, '.github', 'reports', 'security-report.pdf')
         
-        # Génération du nouveau PDF
         generate_pdf_report(json_path, pdf_path)
-        
-        # Envoi des rapports
         send_reports(json_path, pdf_path)
-        print("✅ Rapports générés et envoyés avec succès !")
         
     except Exception as e:
-        print(f"❌ Erreur : {str(e)}")
+        print(f"❌ Erreur générale : {str(e)}")
         exit(1)
