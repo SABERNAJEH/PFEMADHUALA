@@ -11,6 +11,13 @@ import subprocess
 def generate_pdf_report(json_path, pdf_path):
     """Génère un PDF via Pandoc à partir des données JSON"""
     
+    # Vérifier que pandoc existe
+    try:
+        subprocess.run(["pandoc", "--version"], check=True, stdout=subprocess.DEVNULL)
+    except FileNotFoundError:
+        print("❌ Erreur : pandoc n'est pas installé.")
+        exit(1)
+
     if os.path.exists(pdf_path):
         os.remove(pdf_path)
 
@@ -38,7 +45,7 @@ def generate_pdf_report(json_path, pdf_path):
 """
 
     for control in controls:
-        status = str(control.get("status", "unknown"))  # Convertir en string
+        status = str(control.get("status", "unknown"))
         name = str(control.get("name", "Inconnue"))
         description = str(control.get("description", "Aucune description fournie."))
         remediation = str(control.get("remediation", "Aucune remédiation fournie."))
