@@ -2,76 +2,61 @@
 import os
 import smtplib
 import json
+import subprocess
 from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.application import MIMEApplication
-from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
-from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.lib import colors
 
 def generate_pdf_report(json_path, pdf_path):
-    """Génère un PDF professionnel à partir des résultats JSON"""
+    """Génère un PDF via Pandoc à partir des données JSON"""
     
     # Supprimer l'ancien PDF s'il existe
     if os.path.exists(pdf_path):
         os.remove(pdf_path)
     
-    # Charger les données JSON
+    # Convertir JSON en Markdown temporaire
     with open(json_path) as f:
-        scan_data = json.load(f)
+        data = json.load(f)
     
-    # Création du PDF
-    doc = SimpleDocTemplate(pdf_path, pagesize=letter)
-    styles = getSampleStyleSheet()
-    story = []
+    md_content = f"""
+# Rapport de Sécurité Kubernetes
+**Date** : {datetime.now().strftime('%d/%m/%Y %H:%M')}
+
+## Résumé Global
+- **Score de sécurité** : {data.get('summary', {}).get('score', 'N/A')}%
+- **Risques critiques** : {data.get('summary', {}).get('criticalCount', 0)}
+- **Risques élevés** : {data.get('summary', {}).get('highCount', 0)}
+
+## Vulnérabilités Détectées
+"""
     
-    # Titre et métadonnées
-    story.append(Paragraph("Rapport de Sécurité Kubernetes", styles['Title']))
-    story.append(Paragraph(f"Généré le {datetime.now().strftime('%d/%m/%Y %H:%M')}", styles['Normal']))
-    story.append(Spacer(1, 24))
-    
-    # Résumé global
-    summary = scan_data.get('summary', {})
-    story.append(Paragraph("Résumé Global", styles['Heading2']))
-    
-    summary_data = [
-        ["Score de sécurité", f"{summary.get('score', 'N/A')}%"],
-        ["Risques critiques", summary.get('criticalCount', 0)],
-        ["Risques élevés", summary.get('highCount', 0)],
-        ["Ressources analysées", summary.get('resourceCount', 0)]
-    ]
-    
-    summary_table = Table(summary_data, colWidths=[200, 100])
-    summary_table.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
-        ('TEXTCOLOR', (0,0), (-1,0), colors.black),
-        ('ALIGN', (0,0), (-1,-1), 'LEFT'),
-        ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
-        ('BOX', (0,0), (-1,-1), 1, colors.black),
-        ('GRID', (0,0), (-1,-1), 1, colors.black)
-    ]))
-    story.append(summary_table)
-    story.append(Spacer(1, 24))
-    
-    # Détails des vulnérabilités
-    story.append(Paragraph("Vulnérabilités Détectées", styles['Heading2']))
-    
-    for control in scan_data.get('results', [{}])[0].get('controls', []):
+    for control in data.get('results', [{}])[0].get('controls', []):
         if control.get('status') != 'passed':
-            status_color = colors.red if control['status'] == 'failed' else colors.orange
-            story.append(Paragraph(
-                f"<font color='{status_color}'><b>{control['status'].upper()}</b></font> - {control['name']}",
-                styles['Heading3']))
-            
-            story.append(Paragraph(f"<b>Description:</b> {control.get('description', 'N/A')}", styles['Normal']))
-            story.append(Paragraph(f"<b>Remédiation:</b> {control.get('remediation', 'N/A')}", styles['Normal']))
-            story.append(Spacer(1, 12))
+            status_emoji = "❌" if control['status'] == 'failed' else "⚠️"
+            md_content += f"""
+### {status_emoji} {control['name']} ({control['status'].upper()})
+**Description** : {control.get('description', 'N/A')}  
+**Remédiation** : {control.get('remediation', 'N/A')}  
+"""
     
-    # Génération finale
-    doc.build(story)
-    return pdf_path
+    # Écrire le contenu Markdown temporaire
+    md_path = os.path.join(os.path.dirname(pdf_path), 'temp_report.md')
+    with open(md_path, 'w') as f:
+        f.write(md_content)
+    
+    # Convertir en PDF avec Pandoc
+    subprocess.run([
+        'pandoc', md_path,
+        '-o', pdf_path,
+        '--template=eisvogel',
+        '--pdf-engine=xelatex',
+        '-V', 'mainfont=DejaVu Sans',
+        '-V', 'geometry:margin=2cm'
+    ], check=True)
+    
+    # Nettoyer le fichier temporaire
+    os.remove(md_path)
 
 def send_reports(json_path, pdf_path):
     """Envoie les rapports par email"""
