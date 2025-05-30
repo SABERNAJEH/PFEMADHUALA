@@ -11,20 +11,18 @@ import subprocess
 def generate_pdf_report(json_path, pdf_path):
     """Génère un PDF via Pandoc à partir des données JSON"""
     
-    # Supprimer l'ancien PDF s'il existe
     if os.path.exists(pdf_path):
         os.remove(pdf_path)
-    
-    # Charger les données JSON
-    with open(json_path, 'r') as f:
-        try:
-            data = json.load(f)
-        except json.JSONDecodeError:
-            print("❌ Le fichier JSON n'est pas valide.")
-            exit(1)
 
-    summary = data.get('summary', {})
-    results = data.get('results', [{}])[0].get('controls', [])
+    try:
+        with open(json_path, 'r') as f:
+            data = json.load(f)
+    except Exception as e:
+        print(f"❌ Erreur lors de la lecture du fichier JSON: {e}")
+        exit(1)
+
+    summary = data.get("summary", {})
+    controls = data.get("results", [{}])[0].get("controls", [])
 
     md_content = f"""# Rapport de Sécurité Kubernetes
 **Date** : {datetime.now().strftime('%d/%m/%Y %H:%M')}
@@ -39,24 +37,27 @@ def generate_pdf_report(json_path, pdf_path):
 ## Vulnérabilités Détectées
 """
 
-    for control in results:
-        status = control.get('status', 'unknown')
-        name = control.get('name', 'Inconnue')
-        description = control.get('description', 'Aucune description fournie.')
-        remediation = control.get('remediation', 'Aucune remédiation fournie.')
+    for control in controls:
+        status = control.get("status", "unknown")
+        name = control.get("name", "Inconnue")
+        description = control.get("description", "Aucune description fournie.")
+        remediation = control.get("remediation", "Aucune remédiation fournie.")
 
+        # Remplacer .upper() par une version en majuscules directement
         md_content += f"""
 ### ❌ {name} ({status.upper()})
-**Description** : {description}  
+**Description** : {description}
 **Remédiation** : {remediation}
 """
 
-    # Écrire le contenu Markdown temporaire
     md_path = os.path.join(os.path.dirname(pdf_path), 'temp_report.md')
-    with open(md_path, 'w') as f:
-        f.write(md_content)
+    try:
+        with open(md_path, 'w') as f:
+            f.write(md_content)
+    except Exception as e:
+        print(f"❌ Erreur lors de l'écriture du fichier Markdown : {e}")
+        exit(1)
 
-    # Convertir en PDF avec Pandoc
     try:
         subprocess.run([
             'pandoc', md_path,
@@ -70,18 +71,14 @@ def generate_pdf_report(json_path, pdf_path):
         print(f"❌ Erreur lors de la génération du PDF : {e}")
         exit(1)
 
-    # Nettoyer le fichier temporaire
     os.remove(md_path)
 
 def send_reports(json_path, pdf_path):
-    """Envoie les rapports par email"""
-    
     msg = MIMEMultipart()
     msg['From'] = os.environ.get('GMAIL_USER')
     msg['To'] = os.environ.get('REPORT_TO')
     msg['Subject'] = f"Rapport de Sécurité Kubernetes - {datetime.now().strftime('%d/%m/%Y')}"
-    
-    # Corps du message
+
     body = f"""
     <html>
       <body>
@@ -96,8 +93,7 @@ def send_reports(json_path, pdf_path):
     </html>
     """
     msg.attach(MIMEText(body, 'html'))
-    
-    # Ajout des pièces jointes
+
     for file_path, display_name in [
         (pdf_path, "Rapport_Securite_Kubernetes.pdf"),
         (json_path, "Resultats_Kubescape.json")
@@ -110,8 +106,7 @@ def send_reports(json_path, pdf_path):
             part = MIMEApplication(f.read(), Name=display_name)
             part['Content-Disposition'] = f'attachment; filename="{display_name}"'
             msg.attach(part)
-    
-    # Envoi
+
     try:
         with smtplib.SMTP('smtp.gmail.com', 587) as server:
             server.starttls()
@@ -123,14 +118,13 @@ def send_reports(json_path, pdf_path):
         exit(1)
 
 if __name__ == "__main__":
+    workspace = os.environ.get('GITHUB_WORKSPACE', '.')
+    json_path = os.path.join(workspace, '.github', 'reports', 'scan-results.json')
+    pdf_path = os.path.join(workspace, '.github', 'reports', 'security-report.pdf')
+
     try:
-        workspace = os.environ.get('GITHUB_WORKSPACE', '.')
-        json_path = os.path.join(workspace, '.github', 'reports', 'scan-results.json')
-        pdf_path = os.path.join(workspace, '.github', 'reports', 'security-report.pdf')
-        
         generate_pdf_report(json_path, pdf_path)
         send_reports(json_path, pdf_path)
-        
     except Exception as e:
-        print(f"❌ Erreur générale : {str(e)}")
+        print(f"❌ Erreur générale : {e}")
         exit(1)
