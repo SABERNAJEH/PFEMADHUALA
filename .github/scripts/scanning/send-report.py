@@ -11,7 +11,7 @@ import subprocess
 def generate_pdf_report(json_path, pdf_path):
     """Génère un PDF via Pandoc à partir des données JSON"""
     
-    # Vérifier que pandoc existe
+    # Vérifier si pandoc est installé
     try:
         subprocess.run(["pandoc", "--version"], check=True, stdout=subprocess.DEVNULL)
     except FileNotFoundError:
