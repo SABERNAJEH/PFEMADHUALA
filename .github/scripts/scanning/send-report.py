@@ -11,17 +11,19 @@ import subprocess
 def check_pandoc_installed():
     """Vérifie si pandoc est installé"""
     try:
-        subprocess.run(["pandoc", "--version"], check=True, stdout=subprocess.DEVNULL)
+        subprocess.run(["pandoc", "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
         return True
-    except FileNotFoundError:
+    except (subprocess.CalledProcessError, FileNotFoundError):
         print("❌ Erreur : pandoc n'est pas installé.")
+        print("👉 Veuillez ajouter l'installation de pandoc dans votre workflow GitHub.")
         return False
 
 def generate_pdf_report(json_path, pdf_path):
     """Génère un PDF via Pandoc à partir des données JSON"""
-    
+
     if not check_pandoc_installed():
-        exit(1)
+        print("⚠️ Génération PDF ignorée car pandoc n’est pas disponible.")
+        return
 
     if os.path.exists(pdf_path):
         os.remove(pdf_path)
@@ -31,7 +33,7 @@ def generate_pdf_report(json_path, pdf_path):
             data = json.load(f)
     except Exception as e:
         print(f"❌ Erreur lors de la lecture du fichier JSON: {e}")
-        exit(1)
+        return
 
     summary = data.get("summary", {})
     controls = data.get("results", [{}])[0].get("controls", [])
@@ -67,7 +69,7 @@ def generate_pdf_report(json_path, pdf_path):
             f.write(md_content)
     except Exception as e:
         print(f"❌ Erreur lors de l'écriture du fichier Markdown : {e}")
-        exit(1)
+        return
 
     try:
         subprocess.run([
@@ -80,7 +82,7 @@ def generate_pdf_report(json_path, pdf_path):
         ], check=True)
     except subprocess.CalledProcessError as e:
         print(f"❌ Erreur lors de la génération du PDF : {e}")
-        exit(1)
+        return
 
     os.remove(md_path)
 
@@ -106,8 +108,8 @@ def send_reports(json_path, pdf_path):
     msg.attach(MIMEText(body, 'html'))
 
     for file_path, display_name in [
-        (pdf_path, "Rapport_Securite_Kubernetes.pdf"),
-        (json_path, "Resultats_Kubescape.json")
+        (json_path, "Resultats_Kubescape.json"),
+        (pdf_path, "Rapport_Securite_Kubernetes.pdf")
     ]:
         if not os.path.exists(file_path):
             print(f"⚠️ Fichier manquant : {file_path}")
@@ -126,16 +128,14 @@ def send_reports(json_path, pdf_path):
         print("✅ Rapports générés et envoyés avec succès !")
     except Exception as e:
         print(f"❌ Erreur lors de l'envoi : {e}")
-        exit(1)
 
 if __name__ == "__main__":
     workspace = os.environ.get('GITHUB_WORKSPACE', '.')
     json_path = os.path.join(workspace, '.github', 'reports', 'scan-results.json')
     pdf_path = os.path.join(workspace, '.github', 'reports', 'security-report.pdf')
 
-    try:
-        generate_pdf_report(json_path, pdf_path)
-        send_reports(json_path, pdf_path)
-    except Exception as e:
-        print(f"❌ Erreur générale : {e}")
-        exit(1)
+    # Génération du PDF uniquement si Pandoc est disponible
+    generate_pdf_report(json_path, pdf_path)
+
+    # Envoi des rapports (même si le PDF n’a pas pu être généré)
+    send_reports(json_path, pdf_path)
