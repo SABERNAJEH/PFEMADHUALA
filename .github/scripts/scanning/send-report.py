@@ -38,12 +38,11 @@ def generate_pdf_report(json_path, pdf_path):
 """
 
     for control in controls:
-        status = control.get("status", "unknown")
-        name = control.get("name", "Inconnue")
-        description = control.get("description", "Aucune description fournie.")
-        remediation = control.get("remediation", "Aucune remédiation fournie.")
+        status = str(control.get("status", "unknown"))  # Convertir en string
+        name = str(control.get("name", "Inconnue"))
+        description = str(control.get("description", "Aucune description fournie."))
+        remediation = str(control.get("remediation", "Aucune remédiation fournie."))
 
-        # Remplacer .upper() par une version en majuscules directement
         md_content += f"""
 ### ❌ {name} ({status.upper()})
 **Description** : {description}
