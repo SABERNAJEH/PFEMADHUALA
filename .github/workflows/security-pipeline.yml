@@ -23,7 +23,7 @@ jobs:
       EMAIL_PWD: ${{ secrets.GMAIL_PASSWORD }}
       REPORT_TO: ${{ secrets.REPORT_EMAIL }}
   security-validation:
-    uses: ./.github/workflows/notification-job.yml
+    uses: ./.github/workflows/validation-job.yml
     
   
   
