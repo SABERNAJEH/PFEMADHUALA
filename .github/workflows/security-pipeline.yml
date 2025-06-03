@@ -22,8 +22,14 @@ jobs:
       EMAIL_FROM: ${{ secrets.GMAIL_USERNAME }}
       EMAIL_PWD: ${{ secrets.GMAIL_PASSWORD }}
       REPORT_TO: ${{ secrets.REPORT_EMAIL }}
+      
   security-validation:
-    uses: ./.github/workflows/validation-job.yml
+    needs: notifications
+    uses: ./.github/workflows/scanning-job.yml
+    secrets:
+      EMAIL_FROM: ${{ secrets.GMAIL_USERNAME }}
+      EMAIL_PWD: ${{ secrets.GMAIL_PASSWORD }}
+      REPORT_TO: ${{ secrets.REPORT_EMAIL }}
     
   
   
