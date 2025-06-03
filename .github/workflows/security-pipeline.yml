@@ -1,91 +1,101 @@
-name: 🛡️ Kubernetes Security Pipeline
+name: 🔍 Kubernetes SSRF Security Test
 
 on:
-  push:
-    branches: [master]
-  pull_request:
-    branches: [master]
   workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * *'  # Exécution quotidienne
+
+env:
+  RECIPIENT_EMAIL: "najah.wchem@etudiant-isi.utm.tn"
+  CLUSTER_NAME: "k8s-goat-ssrf-test"
 
 jobs:
-  notifications:
-    uses: ./.github/workflows/notification-job.yml
-    secrets:
-      EMAIL_TO: "saber.fraj@etudiant-isi.utm.tn,najah.wchem@etudiant-isi.utm.tn"
-      EMAIL_FROM: ${{ secrets.GMAIL_USERNAME }}
-      EMAIL_PWD: ${{ secrets.GMAIL_PASSWORD }}
-
-  security-scan:
-    needs: notifications
-    uses: ./.github/workflows/scanning-job.yml
-    secrets:
-      EMAIL_FROM: ${{ secrets.GMAIL_USERNAME }}
-      EMAIL_PWD: ${{ secrets.GMAIL_PASSWORD }}
-      REPORT_TO: ${{ secrets.REPORT_EMAIL }}
-
   ssrf-test:
-    needs: security-scan
-    runs-on: ubuntu-latest
-    name: "K8S SSRF Test (Kubernetes Goat)"
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4  # Version mise à jour
+      - name: "1. Checkout Code"
+        uses: actions/checkout@v4
 
-      - name: Setup Minikube
+      - name: "2. Setup Minikube Cluster"
         run: |
+          sudo apt-get update -qq
           curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
           sudo install minikube-linux-amd64 /usr/local/bin/minikube
-          minikube start --driver=docker
-          minikube status
+          minikube start --driver=docker --cpus=2 --memory=4000 --profile=${CLUSTER_NAME}
+          minikube profile list
 
-      - name: Deploy Kubernetes Goat
+      - name: "3. Deploy Kubernetes Goat"
         run: |
           chmod +x setup-kubernetes-goat.sh
           ./setup-kubernetes-goat.sh
-          kubectl wait --for=condition=Ready pods --all -n default --timeout=300s
+          kubectl wait --for=condition=Ready pods --all -n default --timeout=5m
 
-      - name: Discover SSRF endpoint
-        id: ssrf-discovery
+      - name: "4. Discover SSRF Endpoints"
+        id: discovery
         run: |
-          SSRF_SERVICE=$(kubectl get svc -n default -o jsonpath='{.items[?(@.metadata.labels.app=="ssrf-app")].metadata.name}')
-          echo "SSRF_SERVICE=${SSRF_SERVICE}" >> $GITHUB_OUTPUT
-          echo "SSRF_URL=http://$(minikube service ${SSRF_SERVICE} -n default --url)" >> $GITHUB_OUTPUT
+          SSRF_SERVICE=$(kubectl get svc -n default -l app=ssrf-app -o jsonpath='{.items[0].metadata.name}')
+          SSRF_URL=$(minikube service $SSRF_SERVICE -n default --url --profile=${CLUSTER_NAME})
+          echo "SSRF_SERVICE=$SSRF_SERVICE" >> $GITHUB_OUTPUT
+          echo "SSRF_URL=$SSRF_URL" >> $GITHUB_OUTPUT
+          echo "CLUSTER_IP=$(minikube ip --profile=${CLUSTER_NAME})" >> $GITHUB_OUTPUT
 
-      - name: Execute SSRF tests
+      - name: "5. Execute SSRF Attacks"
+        id: tests
+        continue-on-error: true
         run: |
-          # Test 1: Metadata API access
-          curl -s "${{ steps.ssrf-discovery.outputs.SSRF_URL }}?url=http://169.254.169.254/latest/meta-data" || echo "Test 1 failed"
+          # Test matrix
+          TARGETS=(
+            "http://169.254.169.254/latest/meta-data"
+            "https://kubernetes.default/api/v1/secrets"
+            "http://metadata-db.default.svc.cluster.local"
+            "file:///etc/passwd"
+          )
 
-          # Test 2: Kubernetes API access
-          curl -s "${{ steps.ssrf-discovery.outputs.SSRF_URL }}?url=https://kubernetes.default/api/v1/secrets" || echo "Test 2 failed"
+          echo "# SSRF Test Results" > report.md
+          echo "## Kubernetes Goat SSRF Report" >> report.md
+          echo "**Execution Date:** $(date)" >> report.md
+          echo "**Cluster IP:** ${{ steps.discovery.outputs.CLUSTER_IP }}" >> report.md
+          echo "\n### Test Results" >> report.md
 
-          # Test 3: Internal service probing
-          curl -s "${{ steps.ssrf-discovery.outputs.SSRF_URL }}?url=http://metadata-db.default.svc.cluster.local" || echo "Test 3 failed"
+          for target in "${TARGETS[@]}"; do
+            echo "Testing: $target" >> report.md
+            RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" "${{ steps.discovery.outputs.SSRF_URL }}?url=$target" || echo "CURL_ERROR")
+            
+            if [[ "$RESPONSE" == "200" ]]; then
+              echo "🟢 VULNERABLE - Received 200 response" >> report.md
+            elif [[ "$RESPONSE" == "CURL_ERROR" ]]; then
+              echo "🔴 ERROR - Curl failed" >> report.md
+            else
+              echo "🟡 MITIGATED - Response code: $RESPONSE" >> report.md
+            fi
+            
+            echo "---" >> report.md
+          done
 
-      - name: Generate report
+      - name: "6. Capture Debug Info"
         if: always()
         run: |
-          echo "# SSRF Test Results" > report.md
-          echo "## Kubernetes Goat SSRF Analysis" >> report.md
-          echo "- SSRF Service: ${{ steps.ssrf-discovery.outputs.SSRF_SERVICE}}" >> report.md
-          echo "- Minikube IP: $(minikube ip)" >> report.md
-          date >> report.md
+          echo "\n### Cluster State" >> report.md
+          kubectl get pods,svc -n default >> report.md
+          echo "\n### Network Policies" >> report.md
+          kubectl get networkpolicies -A >> report.md
 
-      - name: Upload report
-        uses: actions/upload-artifact@v4  # Version mise à jour
-        with:
-          name: ssrf-test-report
-          path: report.md
-
-      - name: Send notification
-        if: failure()
+      - name: "7. Send Email Report"
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.gmail.com
           server_port: 465
           username: ${{ secrets.GMAIL_USERNAME }}
           password: ${{ secrets.GMAIL_PASSWORD }}
-          subject: "SSRF Vulnerability Detected in Kubernetes Goat"
-          to: ${{ secrets.REPORT_EMAIL }}
+          subject: "Kubernetes Goat SSRF Test Results - $(date +'%Y-%m-%d')"
+          to: ${{ env.RECIPIENT_EMAIL }}
           from: ${{ secrets.GMAIL_USERNAME }}
           body: file://report.md
+          html_body: true
+          attachments: report.md
+
+      - name: "8. Cleanup Cluster"
+        if: always()
+        run: |
+          minikube delete --profile=${CLUSTER_NAME}
